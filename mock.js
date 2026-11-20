@@ -7,7 +7,7 @@ const Mock = (() => {
   const KEY = 'polka_mockdb3';
   const DRIVE = '../drive/';
   const DEFAULTS = {
-    ratio: 0.5, final_pct: 50, blitz_reward: 1, ai_per_day: 20, ai_enabled: true, dob: '2015-09-01',
+    ratio: 0.5, final_pct: 50, blitz_reward: 1, ai_per_day: 0, ai_enabled: true, dob: '2015-09-01',
     lang_months: 112, lang_prog: 0.4, cur_book: 'kasht', locked: true, next_book: 'kur', shortlist: 'kur,timur,deti',
     best_blitz: 9, wpm: 150, wpm_updated: '', pin_hash: 'demo:1234', gemini_model: 'auto', ai_used_date: '', ai_used: 0,
     placement_date: '', vocab_bands: '', vocab_size: 0, bingo_card: 1,
@@ -148,12 +148,12 @@ const Mock = (() => {
       const s = d.Settings;
       if (!s.ai_enabled) throw new Error('AI_OFF');
       const used = s.ai_used_date === today() ? Number(s.ai_used) || 0 : 0;
-      if (used >= Number(s.ai_per_day)) throw new Error('AI_LIMIT');
+      if (Number(s.ai_per_day) > 0 && used >= Number(s.ai_per_day)) throw new Error('AI_LIMIT');
       s.ai_used_date = today();
       s.ai_used = used + 1;
       const answer = 'Это демо-ответ: в настоящем приложении на вопрос «' + req.question + '» ответит ИИ. Он знает, докуда ты дочитал, и не рассказывает, что будет дальше. А ты сам как думаешь?';
       d.AILog.push({ id: id(), date: now(), book_id: req.book_id || '', chapter: req.chapter || '', question: req.question, answer });
-      return { answer, left: Number(s.ai_per_day) - used - 1 };
+      return { answer, left: Number(s.ai_per_day) > 0 ? Number(s.ai_per_day) - used - 1 : -1 };
     },
   };
 

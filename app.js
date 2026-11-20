@@ -243,7 +243,9 @@ function langMonths() { return num(S().lang_months, 111); }
 function hisMonths() { return S().dob ? monthsBetween(S().dob, today()) : 120; }
 function wpm() { return num(S().wpm, 150); }
 function aiOn() { return yes(S().ai_enabled); }
-function aiLeft() { const s = S(); return num(s.ai_per_day, 20) - (s.ai_used_date === today() ? num(s.ai_used, 0) : 0); }
+/** Questions left today; Infinity when the parent set no limit of our own (0) — then only Google's limit applies. */
+function aiLeft() { const s = S(); return num(s.ai_per_day, 0) <= 0 ? Infinity : num(s.ai_per_day, 0) - (s.ai_used_date === today() ? num(s.ai_used, 0) : 0); }
+function aiLeftHtml(style) { return aiLeft() === Infinity ? '' : `<span class="small" style="margin-left:auto;${style}">Вопросов сегодня: ${aiLeft()}</span>`; }
 
 // Difficulty: harder books pay more (capped at +25%), easier ones less. More than 2 years above: "later".
 const MULT = { '-2': 0.75, '-1': 0.9, '0': 1, '1': 1.15, '2': 1.25 };
@@ -594,7 +596,7 @@ VIEWS.book = r => {
     }
   }
   const askBox = aiOn() ? `<section class="card stack" style="background:#EEF2FD;border:0">
-      <div class="row"><h2 style="margin:0">Спросить о книге</h2>${info('ai')}<span class="small muted" style="margin-left:auto">Вопросов сегодня: ${aiLeft()}</span></div>
+      <div class="row"><h2 style="margin:0">Спросить о книге</h2>${info('ai')}${aiLeftHtml('color:var(--muted)')}</div>
       ${chatThread('book', id)}
       <div class="row"><input class="field grow" id="askBook" placeholder="Например: это страшная книга?" maxlength="300"><button class="btn small" data-act="askBook" data-id="${id}">Спросить</button></div></section>` : '';
   const back = r.q.get('from') || (isCur ? 'home' : 'library');
@@ -854,6 +856,7 @@ const AI_ERRORS = {
   AI_OFF: 'Вопросы сейчас выключены.',
   AI_LIMIT: 'На сегодня вопросы закончились. Завтра будут новые!',
   AI_QUOTA: 'Слишком много вопросов сразу. Попробуй через минуту.',
+  AI_DAY: 'На сегодня бесплатные ответы ИИ закончились. Завтра можно спрашивать снова.',
   AI_NOKEY: 'Вопросы ещё не настроены.',
   AI_BUSY: 'ИИ сейчас перегружен. Попробуй через несколько минут — вопрос не потратился.',
   AI_FAIL: 'Что-то пошло не так, ответа нет. Попробуй ещё раз чуть позже — вопрос не потратился.',
@@ -864,14 +867,14 @@ function chatThread(kind, id) {
   if (!C || !C.msgs.length) return '';
   return '<div class="stack" style="gap:10px">' + C.msgs.map(m => `<div class="stack" style="gap:6px">
     <div style="align-self:flex-end;max-width:80%;padding:10px 14px;border-radius:14px 14px 4px 14px;background:var(--blue);color:#FFFFFF">${esc(m.q)}</div>
-    <div style="max-width:90%;padding:12px 14px;border-radius:14px 14px 14px 4px;background:#FFFFFF;line-height:1.55;white-space:pre-wrap">${m.err ? '<span class="ai-err">' + esc(m.err) + '</span>' : m.a ? esc(m.a) : '<span class="typing" aria-label="ИИ думает"><i></i><i></i><i></i></span>'}</div></div>`).join('') + '</div>';
+    <div style="max-width:90%;padding:12px 14px;border-radius:14px 14px 14px 4px;background:#FFFFFF;line-height:1.55;white-space:pre-wrap">${m.err ? '<span class="ai-err">' + esc(m.err) + '</span>' : m.a ? esc(m.a) : '<span class="muted">Думаю</span><span class="typing" aria-hidden="true"><i></i><i></i><i></i></span>'}</div></div>`).join('') + '</div>';
 }
 function chatPanel() {
   const C = UI.chat;
   const starters = C.msgs.length ? '' : `<div class="row wrap" style="gap:8px">${['Объясни, что здесь происходит', 'Почему герой так поступил?', 'Что значит последняя фраза на странице?']
     .map(q => `<button class="chip" data-act="askStarter" data-q="${esc(q)}">${esc(q)}</button>`).join('')}</div>`;
   return `<div class="r-panel r-pop" style="max-height:70vh;overflow-y:auto">
-    <div class="row"><b style="font-size:20px">Обсудить</b>${info('ai')}<span class="small" style="margin-left:auto;color:var(--r-muted)">Вопросов сегодня: ${aiLeft()}</span>
+    <div class="row"><b style="font-size:20px">Обсудить</b>${info('ai')}${aiLeftHtml('color:var(--r-muted)')}
       <button class="r-icon" data-act="closePanel" aria-label="Закрыть">${ICON.close}</button></div>
     ${chatThread('reader', UI.r.id + ':' + UI.r.n)}${starters}
     <div class="row"><input class="field grow" id="askInput" placeholder="Свой вопрос…" maxlength="300" value="${esc(C.draft || '')}"><button class="btn small" data-act="askSend">Спросить</button></div></div>`;
@@ -1560,7 +1563,7 @@ VIEWS.parent = () => {
     </section>
     <section class="stack" style="padding-top:18px;border-top:1px solid var(--line);gap:0"><h2 style="margin:0 0 6px">Вопросы к ИИ</h2>
       <div class="stepper"><span class="grow">Вопросы о книгах (Gemini)</span><button class="btn small ${aiOn() ? 'ghost' : ''}" data-act="toggleAi" style="width:auto">${aiOn() ? 'Выключить' : 'Включить'}</button></div>
-      ${step('Вопросов в день', 'ai_per_day', 1, 0, 30, v => v + '')}
+      ${step('Вопросов в день', 'ai_per_day', 5, 0, 50, v => v ? v + '' : 'без ограничения')}
       ${log.length ? '<div class="stack" style="margin-top:12px">' + log.map(l => `<div class="small"><b>${esc((BOOKS[l.book_id] || {}).short || l.book_id)}${l.chapter ? ', гл. ' + esc(l.chapter) : ''}:</b> ${esc(l.question)}<div class="muted" style="margin-top:2px">${esc(String(l.answer).slice(0, 220))}${String(l.answer).length > 220 ? '…' : ''}</div></div>`).join('') + '</div>' : ''}
     </section>
     ${reviews.length ? `<section class="stack" style="padding-top:18px;border-top:1px solid var(--line)"><h2 style="margin:0">Отзывы</h2>${reviews.map(p => `<div><b>${esc((BOOKS[p.book_id] || {}).short || p.book_id)}</b> ${'★'.repeat(num(p.stars, 0))}<div class="review" style="font-size:15px">${p.review ? '«' + esc(p.review) + '»' : ''}</div></div>`).join('')}</section>` : ''}
