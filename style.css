@@ -140,6 +140,7 @@ input.field { width: 100%; padding: 12px 14px; border-radius: 12px; border: 1px 
 .reader.dark .r-cols figure img { mix-blend-mode: normal; filter: invert(.88) hue-rotate(180deg); }
 .r-cols .end { break-inside: avoid; padding-top: 1em; text-align: center; font-family: var(--ui); }
 .hw { font: inherit; letter-spacing: inherit; color: inherit; background: transparent; padding: 0; margin: 0; line-height: inherit; text-decoration: underline dotted var(--r-under); text-decoration-thickness: 1.5px; text-underline-offset: .25em; cursor: pointer; display: inline; }
+.r-cols p.verse { margin: 0 0 1.4em; padding-left: 1.2em; break-inside: avoid; }
 .r-tap { position: absolute; top: 0; bottom: 0; width: 13%; z-index: 1; }
 .r-tap.l { left: 0; } .r-tap.r { right: 0; }
 .r-foot { display: flex; align-items: center; gap: 20px; padding: 8px 28px calc(env(safe-area-inset-bottom) + 18px); }

@@ -623,7 +623,8 @@ VIEWS.read = async r => {
   const secret = SECRETS[id + ':' + n];
   const html = ch.blocks.map(bl => {
     if (typeof bl === 'object' && bl.img) return `<figure>${asset(bl.img, 'style="width:' + (bl.w || 360) + 'px" data-act="zoom"')}</figure>`;
-    return '<p>' + esc(bl).replace(/\{(\w+)\|([^}]+)\}/g, (m, wid, text) => `<button class="hw" data-act="word" data-id="${wid}">${text}</button>`) + '</p>';
+    // A block with line breaks is a stanza of verse: keep its lines.
+    return (bl.indexOf('\n') > -1 ? '<p class="verse">' : '<p>') + esc(bl).replace(/\{(\w+)\|([^}]+)\}/g, (m, wid, text) => `<button class="hw" data-act="word" data-id="${wid}">${text}</button>`).replace(/\n/g, '<br>') + '</p>';
   }).join('');
   const end = n < book.chapters.length || !passed
     ? (passed ? `<div class="end"><a class="btn" href="#/read/${id}/${n + 1}">Глава ${n + 1} ›</a></div>`
