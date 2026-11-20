@@ -80,7 +80,7 @@ h2 { margin: 6px 0 0; font-size: 19px; font-weight: 700; }
 .badge { width: 44px; height: 44px; flex-shrink: 0; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 700; }
 .current { display: flex; gap: 24px; }
 .cover { border-radius: 6px; box-shadow: 0 6px 18px rgba(18, 24, 38, .22); object-fit: cover; flex-shrink: 0; background: var(--soft); }
-.cloth { flex-shrink: 0; overflow: hidden; overflow-wrap: anywhere; hyphens: auto; padding: 12px 10px; border-radius: 4px 8px 8px 4px; color: #F3EEE6; font-weight: 700; line-height: 1.2; box-shadow: inset 5px 0 0 rgba(0, 0, 0, .22); display: flex; align-items: flex-end; text-align: left; }
+.cloth { flex-shrink: 0; overflow: hidden; overflow-wrap: break-word; -webkit-hyphens: auto; hyphens: auto; word-break: normal; padding: 12px 10px; border-radius: 4px 8px 8px 4px; color: #F3EEE6; font-weight: 700; line-height: 1.2; box-shadow: inset 5px 0 0 rgba(0, 0, 0, .22); display: flex; align-items: flex-end; text-align: left; }
 .segs { display: flex; gap: 4px; }
 .segs i { flex: 1; height: 8px; border-radius: 4px; background: var(--soft); }
 .segs i.done { background: var(--green); }
