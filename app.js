@@ -16,7 +16,7 @@ const yes = v => v === true || v === 'true';
 const fmt = n => Number(n).toLocaleString('ru-RU');
 const IS_LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 
-const APP_VERSION = 18; // keep equal to the number in sw.js's CACHE name
+const APP_VERSION = 19; // keep equal to the number in sw.js's CACHE name
 
 const store = {
   get(k, d) { try { const v = localStorage.getItem('polka_' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -842,9 +842,17 @@ document.addEventListener('selectionchange', () => {
   if (inside && text.length >= 2 && text.length <= 200) {
     btn.textContent = 'Спросить про «' + (text.length > 30 ? text.slice(0, 28) + '…' : text) + '»';
     btn.dataset.text = text;
+    const para = sel.anchorNode && (sel.anchorNode.nodeType === 1 ? sel.anchorNode : sel.anchorNode.parentElement).closest('p');
+    btn.dataset.ctx = sentenceAround(para ? para.textContent : '', text);
     btn.hidden = false;
   } else if (!text) hideAskSel();
 });
+/** The sentence of a paragraph that contains the phrase (or the start of the paragraph). */
+function sentenceAround(para, phrase) {
+  const parts = String(para || '').match(/[^.!?…]+[.!?…]*/g) || [];
+  const hit = parts.find(x => x.indexOf(phrase) > -1);
+  return String(hit || para || phrase).trim().slice(0, 500);
+}
 function hideAskSel() { const b = $('#askSel'); if (b) b.hidden = true; }
 
 function closePanel() { const p = $('#rpanel'); if (p) p.innerHTML = ''; if (UI.r) { UI.r.aa = false; UI.r.pop = null; UI.r.chat = false; } }
@@ -932,11 +940,14 @@ async function askAI(q, kind, bookId) {
   const isBook = kind === 'book';
   const msg = { q, a: '' };
   const history = C.msgs.filter(m => m.a && !m.err).map(m => ({ q: m.q, a: m.a }));
+  // A question about one word or phrase sends only its sentence (see askWord / askSel).
+  const focus = C.focus && q.indexOf(C.focus.phrase) > -1 ? C.focus : null; C.focus = null;
   C.msgs.push(msg); C.busy = true; C.draft = '';
   const redraw = () => { if (isBook) render(); else if (UI.r && UI.r.chat) $('#rpanel').innerHTML = chatPanel(); };
   redraw();
   try {
     const res = await api('ask', isBook ? { kind: 'book', book_id: bookId, question: q, history }
+      : focus ? { kind: 'word', book_id: UI.r.id, chapter: UI.r.n, phrase: focus.phrase, sentence: focus.sentence, question: q, history: [] }
       : { kind: 'reader', book_id: UI.r.id, chapter: UI.r.n, page: visibleText(), question: q, history }, 45000);
     msg.a = res.answer;
     D.settings.ai_used_date = today();
@@ -1792,7 +1803,7 @@ const ACTS = {
   },
   // reader
   pg: el => turnPage(Number(el.dataset.d)),
-  word: el => tapWord(el.dataset.id),
+  word: el => { if (UI.r) UI.r.lastWord = sentenceAround(el.closest('p') ? el.closest('p').textContent : '', el.textContent); tapWord(el.dataset.id); },
   closePanel: () => closePanel(),
   aa: () => { const p = $('#rpanel'); if (UI.r.aa) closePanel(); else { closePanel(); UI.r.aa = true; p.innerHTML = aaPanel(); } },
   pref: el => {
@@ -1814,8 +1825,8 @@ const ACTS = {
   chat: () => (UI.r.chat ? closePanel() : openChat('')),
   askStarter: el => openChat(el.dataset.q, true),
   askSend: () => { const i = $('#askInput'); if (i && i.value.trim()) askAI(i.value); },
-  askWord: el => openChat('Что значит «' + el.dataset.base + '» в этом месте?', true),
-  askSel: el => { hideAskSel(); const t = el.dataset.text; try { window.getSelection().removeAllRanges(); } catch (e) { /* ignore */ } openChat('Что значит «' + t + '» здесь?', false); },
+  askWord: el => { UI.chat.focus = { phrase: el.dataset.base, sentence: (UI.r && UI.r.lastWord) || '' }; openChat('Что значит «' + el.dataset.base + '» в этом месте?', true); },
+  askSel: el => { hideAskSel(); const t = el.dataset.text; UI.chat.focus = { phrase: t, sentence: el.dataset.ctx || t }; try { window.getSelection().removeAllRanges(); } catch (e) { /* ignore */ } openChat('Что значит «' + t + '» здесь?', false); },
   askBook: el => {
     const i = $('#askBook');
     if (!i || !i.value.trim()) return;
