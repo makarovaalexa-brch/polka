@@ -121,7 +121,7 @@ input.field { width: 100%; padding: 12px 14px; border-radius: 12px; border: 1px 
 
 /* ------------------------------------------------------------ reader */
 .reader { position: fixed; inset: 0; display: flex; flex-direction: column; background: var(--r-bg); color: var(--r-ink); }
-.reader.light { --r-bg: #FBFBF8; --r-ink: #1A1D24; --r-muted: #5F6673; --r-line: #E6E8EC; --r-panel: #FFFFFF; --r-under: #B9BEC8; --r-btn: #F0F2F5; }
+.reader.light { --r-bg: #FBFBF8; --r-ink: #1A1D24; --r-muted: #5F6673; --r-line: #E6E8EC; --r-panel: #FFFFFF; --r-under: #A4AAB6; --r-btn: #F0F2F5; }
 .reader.sepia { --r-bg: #F5EEDF; --r-ink: #33291D; --r-muted: #6E604D; --r-line: #E3D8C3; --r-panel: #FBF6EC; --r-under: #BFAE90; --r-btn: #EDE3CF; }
 .reader.dark { --r-bg: #15171B; --r-ink: #DCDDE0; --r-muted: #9097A3; --r-line: #2A2E35; --r-panel: #20242B; --r-under: #5A606B; --r-btn: #232831; }
 .r-bar { display: flex; align-items: center; gap: 10px; padding: calc(env(safe-area-inset-top) + 10px) 20px 6px; }
@@ -139,7 +139,8 @@ input.field { width: 100%; padding: 12px 14px; border-radius: 12px; border: 1px 
 .reader.sepia .r-cols figure img { filter: sepia(.35); }
 .reader.dark .r-cols figure img { mix-blend-mode: normal; filter: invert(.88) hue-rotate(180deg); }
 .r-cols .end { break-inside: avoid; padding-top: 1em; text-align: center; font-family: var(--ui); }
-.hw { font: inherit; letter-spacing: inherit; color: inherit; background: transparent; padding: 0; margin: 0; line-height: inherit; text-decoration: underline dotted var(--r-under); text-decoration-thickness: 1.5px; text-underline-offset: .25em; cursor: pointer; display: inline; }
+/* Hard words: plain text with a dotted underline (a <span>, because Safari on iPad doesn't draw underlines on buttons). */
+.hw { cursor: pointer; -webkit-text-decoration: underline dotted var(--r-under); text-decoration: underline dotted var(--r-under); text-decoration-thickness: 2px; text-underline-offset: .25em; -webkit-tap-highlight-color: transparent; }
 .r-cols p.verse { margin: 0 0 1.4em; padding-left: 1.2em; break-inside: avoid; }
 .r-tap { position: absolute; top: 0; bottom: 0; width: 13%; z-index: 1; }
 .r-tap.l { left: 0; } .r-tap.r { right: 0; }
