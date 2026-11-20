@@ -16,6 +16,8 @@ const yes = v => v === true || v === 'true';
 const fmt = n => Number(n).toLocaleString('ru-RU');
 const IS_LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 
+const APP_VERSION = 17; // keep equal to the number in sw.js's CACHE name
+
 const store = {
   get(k, d) { try { const v = localStorage.getItem('polka_' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
   set(k, v) { try { localStorage.setItem('polka_' + k, JSON.stringify(v)); } catch (e) { /* storage full or blocked */ } },
@@ -1636,6 +1638,7 @@ VIEWS.parent = () => {
       </div>
       ${tricky.length ? '<div class="small">Чаще всего ошибается: ' + tricky.map(esc).join(', ') + '.</div>' : ''}
       ${step('Уровень языка (поправить)', 'lang_months', 1, 72, 192, v => ym(v))}
+      <div class="tiny muted">Версия приложения: ${APP_VERSION}</div>
       <div class="row"><span class="grow small muted">Скорость чтения (ему не показывается): ${wpm()} сл/мин</span>${s.placement_date ? (levelDue() ? '' : '<button class="btn ghost small" data-act="retest">Проверить уровень сейчас</button>') : ''}</div>
     </section>
     <section class="stack" style="padding-top:18px;border-top:1px solid var(--line);gap:0"><h2 style="margin:0 0 6px">Награды</h2>

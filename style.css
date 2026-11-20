@@ -140,7 +140,11 @@ input.field { width: 100%; padding: 12px 14px; border-radius: 12px; border: 1px 
 .reader.dark .r-cols figure img { mix-blend-mode: normal; filter: invert(.88) hue-rotate(180deg); }
 .r-cols .end { break-inside: avoid; padding-top: 1em; text-align: center; font-family: var(--ui); }
 /* Hard words: plain text with a dotted underline (a <span>, because Safari on iPad doesn't draw underlines on buttons). */
-.hw { cursor: pointer; -webkit-text-decoration: underline dotted var(--r-under); text-decoration: underline dotted var(--r-under); text-decoration-thickness: 2px; text-underline-offset: .25em; -webkit-tap-highlight-color: transparent; }
+.hw { cursor: pointer; -webkit-tap-highlight-color: transparent; padding-bottom: .12em;
+  /* A dotted line drawn as a background: works in Safari's paged columns, where text underlines can vanish. */
+  background-image: radial-gradient(circle, var(--r-under) 1.1px, transparent 1.4px);
+  background-size: 5px 3px; background-repeat: repeat-x; background-position: 0 100%;
+  -webkit-box-decoration-break: clone; box-decoration-break: clone; }
 .r-cols p.verse { margin: 0 0 1.4em; padding-left: 1.2em; break-inside: avoid; }
 .r-tap { position: absolute; top: 0; bottom: 0; width: 13%; z-index: 1; }
 .r-tap.l { left: 0; } .r-tap.r { right: 0; }
