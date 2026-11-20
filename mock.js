@@ -8,7 +8,7 @@ const Mock = (() => {
   const DRIVE = '../drive/';
   const DEFAULTS = {
     ratio: 0.5, final_pct: 50, blitz_reward: 1, ai_per_day: 20, ai_enabled: true, dob: '2015-09-01',
-    lang_months: 112, lang_prog: 0.4, cur_book: 'kasht', locked: true, next_book: 'kur', shortlist: 'kur,timur,salt',
+    lang_months: 112, lang_prog: 0.4, cur_book: 'kasht', locked: true, next_book: 'kur', shortlist: 'kur,timur,deti',
     best_blitz: 9, wpm: 150, wpm_updated: '', pin_hash: 'demo:1234', gemini_model: 'auto', ai_used_date: '', ai_used: 0,
     placement_date: '', vocab_bands: '', vocab_size: 0, bingo_card: 1,
   };
@@ -23,7 +23,7 @@ const Mock = (() => {
   /** A few weeks of history: four short books read, «Каштанка» on chapter 3, a placement test done. */
   function seed() {
     const S = Object.assign({}, DEFAULTS, { placement_date: day(-12), vocab_bands: JSON.stringify([1, 0.96, 0.86, 0.64, 0.4, 0.15]), vocab_size: 7900 });
-    const done = [['lyag', -40, 5, 'Смешно, что она сама всё испортила. Я бы тоже не удержался.', '1:Сказка', 1800],
+    const done = [['chuk', -40, 5, 'Смешно, как они потеряли телеграмму и молчали. Тайга очень красивая.', '1:Приключения', 7500],
       ['pudel', -28, 4, 'Серёжа очень смелый. Конец хороший, но злой мальчик ничего не понял.', '1:Про животных', 4300],
       ['plen', -16, 5, 'Лучше всего побег. Дина классная.', '1:Про историю', 6000],
       ['dok', -6, 0, '', '1:Рассказ', 2900]];
