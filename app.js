@@ -248,6 +248,12 @@ function doneIds() { return doneRows().map(p => p.book_id); }
 function passedCh(id) { const p = progressOf(id); return p ? num(p.chapters_passed, 0) : 0; }
 function chapterChecks() { return (D.checks || []).filter(c => c.book_id !== 'blitz' && c.chapter !== 'final'); }
 function placed() { return !!S().placement_date; }
+/* Level checks: the same test every 3 months, each time a version he has not seen (versions A, B, C...). */
+const LEVEL_EVERY = 90;
+function levelDueIn() { return placed() ? LEVEL_EVERY - Math.round((parseIso(today()) - parseIso(S().placement_date)) / 864e5) : 0; }
+function levelDue() { return placed() && levelDueIn() <= 0; }
+function levelHistory() { try { return JSON.parse(S().level_history || '[]'); } catch (e) { return []; } }
+const LEVEL_REWARD = 10;
 function calibrated() { return placed() || chapterChecks().filter(c => yes(c.passed)).length >= 3; }
 function langMonths() { return num(S().lang_months, 111); }
 function hisMonths() { return S().dob ? monthsBetween(S().dob, today()) : 120; }
@@ -513,7 +519,8 @@ VIEWS.home = () => {
       <button class="btn small dark" data-act="redeem" ${pend || bal < 15 ? 'disabled' : ''}>Потратить</button>
     </header>
     ${tracks}
-    ${!placed() ? `<a class="card row" href="#/test" style="gap:14px"><span style="font-size:28px">🧭</span><div class="grow"><b>Тест на уровень · 10 минут</b><div class="small muted">Узнай, какие книги тебе по силам</div></div><span class="pill">Начать ›</span></a>` : ''}
+    ${!placed() ? `<a class="card row" href="#/test" style="gap:14px"><span style="font-size:28px">🧭</span><div class="grow"><b>Тест на уровень · 10 минут</b><div class="small muted">Узнай, какие книги тебе по силам</div></div><span class="pill">Начать ›</span></a>`
+      : levelDue() ? `<a class="card row" href="#/test" style="gap:14px"><span style="font-size:28px">🧭</span><div class="grow"><b>Проверка уровня · 10 минут · +${LEVEL_REWARD} мин</b><div class="small muted">Прошло три месяца — посмотрим, насколько ты вырос</div></div><span class="pill">Начать ›</span></a>` : ''}
     ${current}
     <section class="stack" style="gap:12px">
       <div class="row"><h2 class="grow" style="margin:0">Хочу прочитать</h2><a class="pill" href="#/library">Библиотека ›</a></div>
@@ -1406,7 +1413,10 @@ VIEWS.me = () => {
         <div class="you" style="left:${pos(lm)}%"><b>ты</b><i></i></div>
         <div class="age" style="left:${pos(hm)}%"><span>твой возраст</span><i></i></div>
         <div class="ticks">${Array.from({ length: 11 }, (_, i) => '<span>' + (ageMin + i) + '</span>').join('')}</div></div>
-      <div class="small muted">Твой возраст — ${ym(hm)} · сравнение с детьми, для которых русский родной</div></section>`
+      <div class="small muted">Твой возраст — ${ym(hm)} · сравнение с детьми, для которых русский родной</div>
+      ${levelDue() ? `<a class="btn amber" href="#/test" style="align-self:flex-start">Проверка уровня · +${LEVEL_REWARD} мин</a>`
+        : placed() ? `<div class="small muted">Следующая проверка уровня — через ${levelDueIn()} ${plural(levelDueIn(), 'день', 'дня', 'дней')}</div>` : ''}
+      ${levelHistory().length > 1 ? `<div class="stack" style="gap:4px;margin-top:4px">${levelHistory().slice().reverse().map(h => `<div class="small muted">${esc(h.d)} · ${ym(h.m)}${h.s ? ' · словарь ≈ ' + fmt(Math.round(h.s / 100) * 100) : ''}</div>`).join('')}</div>` : ''}</section>`
     : `<section class="darkcard stack" style="gap:14px"><span class="muted">Язык</span>
       <div style="font-size:26px;font-weight:700;line-height:1.25">Уровень появится после трёх проверок глав</div>
       <div class="row" style="gap:8px">${[0, 1, 2].map(i => `<i style="width:64px;height:10px;border-radius:5px;background:${i < nPassed ? 'var(--amber)' : 'var(--dark-line)'}"></i>`).join('')}</div>
@@ -1454,22 +1464,26 @@ VIEWS.me = () => {
    made-up ones that catch guessing), then short passages from easy to hard with three questions each.
    Result: the language age (the hardest passage he understood) and how much of each band he knows. */
 VIEWS.test = async () => {
-  if (placed() && !(UI.test && UI.test.phase === 'done')) {
-    return `<div class="page full">${backBtn('me')}<div class="card big stack"><b style="font-size:22px">Тест уже пройден</b><div class="muted">Пройти его заново может разрешить родитель.</div></div></div>`;
+  if (placed() && !levelDue() && !(UI.test && UI.test.phase === 'done')) {
+    return `<div class="page full">${backBtn('me')}<div class="card big stack"><b style="font-size:22px">Тест уже пройден</b><div class="muted">Следующая проверка уровня — через ${levelDueIn()} ${plural(levelDueIn(), 'день', 'дня', 'дней')}.</div></div></div>`;
   }
   let P;
   try { P = await content('placement.json'); } catch (e) { toast('Не получилось загрузить тест', true); location.hash = '#/me'; return null; }
   if (!UI.test) {
-    const items = seeded(P.real.map(r => ({ w: r.w, band: r.band })).concat(P.fake.map(w => ({ w, band: 0 }))), 'test' + today());
-    const passages = P.passages.slice().sort((a, b) => a.age - b.age);
-    UI.test = { phase: 'intro', items, i: 0, said: [], passages, pi: 0, answers: {}, scores: [] };
+    // Version A is the first test; each later check takes the next version (and starts over after the last).
+    const forms = [{ real: P.real, fake: P.fake, passages: P.passages }].concat(P.forms || []);
+    const F = forms[num(S().placement_count, 0) % forms.length];
+    const items = seeded(F.real.map(r => ({ w: r.w, band: r.band })).concat(F.fake.map(w => ({ w, band: 0 }))), 'test' + today());
+    const passages = F.passages.slice().sort((a, b) => a.age - b.age);
+    UI.test = { phase: 'intro', items, i: 0, said: [], passages, pi: 0, answers: {}, scores: [], recheck: placed(), before: langMonths() };
   }
   const T = UI.test;
-  const head = `<header class="head">${backBtn('me')}<h1>Тест на уровень</h1></header>`;
+  const head = `<header class="head">${backBtn('me')}<h1>${T.recheck ? 'Проверка уровня' : 'Тест на уровень'}</h1></header>`;
   if (T.phase === 'intro') return `<div class="page white full">${head}
     <div class="stack" style="gap:16px;font-size:18px;line-height:1.6;max-width:640px">
       <p style="margin:0">Сначала будут слова: нажимай «Знаю», если понимаешь, что слово значит, и «Не знаю», если нет. Некоторые слова выдуманные — их честно отмечай «Не знаю».</p>
       <p style="margin:0">Потом — несколько коротких текстов с вопросами, от лёгких к трудным. Не спеши и читай внимательно. Это не экзамен: так приложение подберёт книги тебе по силам.</p>
+      ${T.recheck ? `<p style="margin:0">Слова и тексты в этот раз новые. За проверку — +${LEVEL_REWARD} минут.</p>` : ''}
       <button class="btn" data-act="testGo" style="align-self:flex-start">Начать</button></div></div>`;
   if (T.phase === 'vocab') {
     const it = T.items[T.i];
@@ -1495,6 +1509,7 @@ VIEWS.test = async () => {
   return `<div class="page white full">${head}
     <div class="darkcard stack" style="gap:12px"><span class="muted">Ты читаешь как носитель языка в возрасте</span>
       <div style="font-size:44px;font-weight:700">${ym(T.result.months)}</div>
+      ${T.recheck ? `<div class="muted">${T.result.months > T.before ? 'Было ' + ym(T.before) + ' → стало ' + ym(T.result.months) + ' 🎉' : 'Уровень сохранён'} · +${LEVEL_REWARD} мин</div>` : ''}
       <div class="muted">Словарный запас ≈ ${fmt(Math.round(T.result.size / 100) * 100)} слов · сравнение с детьми, для которых русский родной</div></div>
     <a class="btn" href="#/library" style="align-self:flex-start">Посмотреть книги по силам</a></div>`;
 };
@@ -1521,10 +1536,17 @@ function finishTest() {
     else { extra = T.scores[i] / 3; break; }
   }
   const gap = T.passages.length > 1 ? T.passages[1].age - T.passages[0].age : 2;
-  const months = Math.round(base * 12 + extra * gap * 12 * 0.75);
-  T.result = { months, size, bands, fa };
+  const tested = Math.round(base * 12 + extra * gap * 12 * 0.75);
+  // A level check is blended with the level his chapter checks have built up (60% test, 40% current),
+  // and it never lowers it: a bad day keeps what he has earned. The first test sets the level on its own.
+  const months = T.recheck ? Math.max(T.before, Math.round(0.6 * tested + 0.4 * T.before)) : tested;
+  T.result = { months, size, bands, fa, tested };
   T.phase = 'done';
-  save([], { placement_date: today(), vocab_bands: JSON.stringify(bands), vocab_size: size, lang_months: months, lang_prog: 0 });
+  const hist = levelHistory().concat([{ d: today(), m: months, t: tested, s: size }]);
+  save(T.recheck ? [ledger('level', LEVEL_REWARD, 'level:' + today())] : [], {
+    placement_date: today(), vocab_bands: JSON.stringify(bands), vocab_size: size, lang_months: months, lang_prog: 0,
+    placement_count: num(S().placement_count, 0) + 1, level_history: JSON.stringify(hist.slice(-12)),
+  });
   render();
 }
 
@@ -1562,7 +1584,7 @@ VIEWS.parent = () => {
       </div>
       ${tricky.length ? '<div class="small">Чаще всего ошибается: ' + tricky.map(esc).join(', ') + '.</div>' : ''}
       ${step('Уровень языка (поправить)', 'lang_months', 1, 72, 192, v => ym(v))}
-      <div class="row"><span class="grow small muted">Скорость чтения (ему не показывается): ${wpm()} сл/мин</span>${s.placement_date ? '<button class="btn ghost small" data-act="retest">Разрешить пройти тест заново</button>' : ''}</div>
+      <div class="row"><span class="grow small muted">Скорость чтения (ему не показывается): ${wpm()} сл/мин</span>${s.placement_date ? (levelDue() ? '' : '<button class="btn ghost small" data-act="retest">Проверить уровень сейчас</button>') : ''}</div>
     </section>
     <section class="stack" style="padding-top:18px;border-top:1px solid var(--line);gap:0"><h2 style="margin:0 0 6px">Награды</h2>
       ${step('Минут экрана за минуту чтения', 'ratio', 0.1, 0.1, 2, v => ru(v) + ' мин')}
@@ -1793,7 +1815,8 @@ const ACTS = {
   decide: el => parentCall({ op: 'decide', id: el.dataset.id, approve: el.dataset.ok === '1' }, el.dataset.ok === '1' ? 'Одобрено. Теперь одобрите в «Экранном времени».' : 'Отклонено'),
   toggleLock: () => setNow({ locked: !yes(S().locked) }),
   toggleAi: () => setNow({ ai_enabled: !aiOn() }),
-  retest: () => { UI.test = null; setNow({ placement_date: '' }, 'Тест можно пройти заново'); },
+  // Makes the next level check due now (with a version he hasn't seen), instead of waiting 3 months.
+  retest: () => { UI.test = null; setNow({ placement_date: addDays(today(), -LEVEL_EVERY) }, 'Проверка уровня открыта'); },
   pset: el => {
     const k = el.dataset.k, v = Math.round(Math.min(Number(el.dataset.max), Math.max(Number(el.dataset.min), num(S()[k], 0) + Number(el.dataset.d))) * 10) / 10;
     setNow({ [k]: v });
