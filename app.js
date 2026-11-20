@@ -435,7 +435,7 @@ const INFO = {
   cover: 'Сколько слов из книги ты, скорее всего, знаешь — по тесту на уровень. Имена героев не считаются. Чем больше, тем легче читать.',
   ranks: 'Звание считается по словам, прочитанным за последние 3 месяца. Если перестать читать, оно может опуститься — и снова подняться, когда вернёшься к книгам.',
   bingo: 'Каждая прочитанная книга закрывает одну подходящую клетку. Ряд, столбец или диагональ — +10 мин, вся карточка — +30 мин. Потом можно начать новую карточку с другими клетками.',
-  blitz: 'В раунде до 20 вопросов на 2 минуты: сначала слова на сегодня, потом повторение других твоих слов. Слово уходит из списка после трёх верных ответов в разные дни: значение, слово в предложении, слово по значению. Ошибка — и слово начинает заново и вернётся ещё в этом раунде. После трёх ответов слово отдыхает месяц, потом одна проверка.',
+  blitz: 'В раунде до 20 вопросов на 2 минуты: сначала слова на сегодня, потом повторение других твоих слов. Слово уходит из списка после трёх верных ответов в разные дни. Ошибка — и слово начинает заново и вернётся ещё в этом раунде. После трёх ответов слово отдыхает месяц, потом одна проверка.',
   quiz: 'Чем длиннее глава, тем больше вопросов. Для зачёта нужно три четверти верных ответов. Если не получилось, можно перечитать главу и попробовать ещё раз — вопросы будут другие.',
   final: 'Финальная проверка по всей книге: нужно 6 верных из 8.',
   ai: 'Можно спросить о том, что ты уже прочитал: что значит слово или фраза, почему герой так поступил. Ответы не рассказывают, что будет дальше.',
@@ -1076,7 +1076,7 @@ function dueWords() {
 function dueCases() {
   return CASES.filter(c => { const w = wordRow('case:' + c.id); return !w || ((w.st === 'learning' || w.st === 'archived') && (!w.due || w.due <= today())); });
 }
-function dueCount() { return dueWords().filter(w => w.book_id !== 'case').length + Math.min(dueCases().length, 4); }
+function dueCount() { return dueWords().filter(w => w.book_id !== 'case').length; }
 
 /* A round is always about BZ_SIZE questions in BZ_SECS seconds. Words due today come first (these move
    on in his schedule); the rest is practice with his other words, which only counts if he gets it wrong. */
@@ -1094,15 +1094,9 @@ async function buildRound() {
   const words = due.filter(has).sort((a, b) => rank(a) - rank(b)).slice(0, 30);
   const practice = seeded(extra.filter(has), 'bz' + t + num((stats()[t] || {}).bzRounds, 0)).slice(0, Math.max(0, BZ_SIZE - words.length));
   const pool = Object.keys(books).reduce((a, bid) => a.concat(Object.values(books[bid].glossary).filter(g => !g.g).map(g => g.base)), []);
-  const qs = words.map(w => wordQ(w, books[w.book_id].glossary[w.word_id], pool))
-    .concat(practice.map(w => Object.assign(wordQ(w, books[w.book_id].glossary[w.word_id], pool), { practice: true })));
-  // Up to 4 case questions a day: those due again first, then new ones.
-  const cs = dueCases().map(c => ({ c, w: wordRow('case:' + c.id) })).sort((a, b) => (a.w ? 0 : 1) - (b.w ? 0 : 1)).slice(0, 4).map(x => caseQ(x.c));
-  const out = [];
-  let ci = 0;
-  qs.forEach((q, i) => { out.push(q); if (i % 3 === 2 && ci < cs.length) out.push(cs[ci++]); });
-  while (ci < cs.length) out.push(cs[ci++]);
-  return out;
+  // Блиц asks only «Что это значит?» (the parent's choice): no case questions, no other question types.
+  return words.map(w => wordQ(w, books[w.book_id].glossary[w.word_id], pool, true))
+    .concat(practice.map(w => Object.assign(wordQ(w, books[w.book_id].glossary[w.word_id], pool, true), { practice: true })));
 }
 /** s = 0: meaning, 1: in a sentence, 2 (or the month check): the word from its meaning. */
 function wordQ(w, g, pool, forceMeaning) {
