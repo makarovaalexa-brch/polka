@@ -247,6 +247,21 @@ function doneRows() { return (D.progress || []).filter(p => p.status === 'done')
 function doneIds() { return doneRows().map(p => p.book_id); }
 function passedCh(id) { const p = progressOf(id); return p ? num(p.chapters_passed, 0) : 0; }
 function chapterChecks() { return (D.checks || []).filter(c => c.book_id !== 'blitz' && c.chapter !== 'final'); }
+/* His level shown by the books he reads: the highest book age A at which at least 4 chapter checks of books
+   for A+ were passed at the FIRST try, three times out of four. Passing some first tries in books a year
+   harder adds up to half a year. Only ever used to raise his level, never to lower it. */
+function evidenceMonths(checks) {
+  const seen = new Set();
+  const first = (checks || chapterChecks()).filter(c => { const k = c.book_id + ':' + c.chapter; if (seen.has(k)) return false; seen.add(k); return true; })
+    .map(c => ({ age: num((BOOKS[c.book_id] || {}).age, 0), ok: num(c.score, 0) >= passMark(num(c.total, 0)) && num(c.total, 0) > 0 }))
+    .filter(x => x.age);
+  const rate = A => { const xs = first.filter(x => x.age >= A); return xs.length ? { n: xs.length, r: xs.filter(x => x.ok).length / xs.length } : { n: 0, r: 0 }; };
+  let best = 0;
+  for (let A = 6; A <= 16; A++) { const x = rate(A); if (x.n >= 4 && x.r >= 0.75) best = A; }
+  if (!best) return 0;
+  const up = rate(best + 1);
+  return best * 12 + (up.n >= 2 ? Math.floor(6 * up.r) : 0);
+}
 function placed() { return !!S().placement_date; }
 /* Level checks: the same test every 3 months, each time a version he has not seen (versions A, B, C...). */
 const LEVEL_EVERY = 90;
@@ -255,7 +270,8 @@ function levelDue() { return placed() && levelDueIn() <= 0; }
 function levelHistory() { try { return JSON.parse(S().level_history || '[]'); } catch (e) { return []; } }
 const LEVEL_REWARD = 10;
 function calibrated() { return placed() || chapterChecks().filter(c => yes(c.passed)).length >= 3; }
-function langMonths() { return num(S().lang_months, 111); }
+/** His language age in months: the stored level, lifted to what his first-try chapter checks show. */
+function langMonths() { return Math.max(num(S().lang_months, 111), evidenceMonths()); }
 function hisMonths() { return S().dob ? monthsBetween(S().dob, today()) : 120; }
 function wpm() { return num(S().wpm, 150); }
 function aiOn() { return yes(S().ai_enabled); }
@@ -415,11 +431,11 @@ const backBtn = to => '<a class="icon-btn" href="#/' + to + '" aria-label="На�
 const INFO = {
   lock: 'Начатую книгу нужно дочитать, прежде чем начать следующую. Сменить её раньше можно с разрешения родителя.',
   mult: 'Книги разложены по возрасту: для какого возраста они обычно у носителей языка. Книга выше твоего уровня даёт больше минут, до ×1,25; ниже — меньше, до ×0,75. Слишком сложные откроются, когда твой уровень вырастет.',
-  level: 'Это возраст ребёнка, для которого русский родной и который читает такие же книги, как ты. Он растёт, когда ты проходишь проверки глав (особенно в книгах выше уровня) и учишь новые слова. Это оценка, а не экзамен.',
+  level: 'Это возраст ребёнка, для которого русский родной и который читает такие же книги, как ты. Если ты с первой попытки проходишь проверки глав в книгах для какого-то возраста, это и есть твой уровень. Между этим он понемногу растёт с каждой проверкой главы и выученными словами. Раз в три месяца — проверка уровня. Уровень никогда не опускается.',
   cover: 'Сколько слов из книги ты, скорее всего, знаешь — по тесту на уровень. Имена героев не считаются. Чем больше, тем легче читать.',
   ranks: 'Звание считается по словам, прочитанным за последние 3 месяца. Если перестать читать, оно может опуститься — и снова подняться, когда вернёшься к книгам.',
   bingo: 'Каждая прочитанная книга закрывает одну подходящую клетку. Ряд, столбец или диагональ — +10 мин, вся карточка — +30 мин. Потом можно начать новую карточку с другими клетками.',
-  blitz: 'Слово уходит из списка после трёх верных ответов в разные дни: значение, слово в предложении, слово по значению. Ошибка — и слово начинает заново и вернётся ещё в этом раунде. После трёх ответов слово отдыхает месяц, потом одна проверка.',
+  blitz: 'В раунде до 20 вопросов на 2 минуты: сначала слова на сегодня, потом повторение других твоих слов. Слово уходит из списка после трёх верных ответов в разные дни: значение, слово в предложении, слово по значению. Ошибка — и слово начинает заново и вернётся ещё в этом раунде. После трёх ответов слово отдыхает месяц, потом одна проверка.',
   quiz: 'Чем длиннее глава, тем больше вопросов. Для зачёта нужно три четверти верных ответов. Если не получилось, можно перечитать главу и попробовать ещё раз — вопросы будут другие.',
   final: 'Финальная проверка по всей книге: нужно 6 верных из 8.',
   ai: 'Можно спросить о том, что ты уже прочитал: что значит слово или фраза, почему герой так поступил. Ответы не рассказывают, что будет дальше.',
@@ -1021,6 +1037,9 @@ function submitCheck(key) {
       let prog = num(S().lang_prog, 0) + (d < 0 ? 0.15 : d === 0 ? 0.35 : d === 1 ? 0.5 : 0.6) * (C.score === C.qs.length ? 1.2 : 1);
       let months = langMonths();
       if (prog >= 1) { months += Math.floor(prog); prog %= 1; C.note = 'уровень языка: ' + ym(months); }
+      // What his first tries show can lift the level straight to that book age (never lower it).
+      const ev = evidenceMonths(chapterChecks().concat([{ book_id: id, chapter: n, score: C.score, total: C.qs.length }]));
+      if (ev > months) { months = ev; prog = 0; C.note = 'уровень языка: ' + ym(months); }
       set.lang_months = months; set.lang_prog = Math.round(prog * 100) / 100;
     }
     ops.push({ t: 'Checks', rows: [{ id: rid(), date: today(), book_id: id, chapter: n, score: C.score, total: C.qs.length, passed: C.passed && !already, mins, words: C.passed && !already ? ch.words : 0 }] });
@@ -1059,14 +1078,24 @@ function dueCases() {
 }
 function dueCount() { return dueWords().filter(w => w.book_id !== 'case').length + Math.min(dueCases().length, 4); }
 
+/* A round is always about BZ_SIZE questions in BZ_SECS seconds. Words due today come first (these move
+   on in his schedule); the rest is practice with his other words, which only counts if he gets it wrong. */
+const BZ_SIZE = 20, BZ_SECS = 120;
 async function buildRound() {
   const due = dueWords().filter(w => w.book_id !== 'case');
+  const dueKeys = new Set(due.map(w => w.key));
+  const t = today();
+  const extra = (D.words || []).filter(w => w.book_id !== 'case' && !dueKeys.has(w.key) && ['learning', 'archived', 'learned'].indexOf(w.st) > -1)
+    .sort((a, b) => (a.st === 'learning' ? 0 : 1) - (b.st === 'learning' ? 0 : 1) || String(a.due || t).localeCompare(String(b.due || t)));
   const books = {};
-  for (const bid of new Set(due.map(w => w.book_id))) { try { books[bid] = await loadBook(bid); } catch (e) { /* skip */ } }
+  for (const bid of new Set(due.concat(extra).map(w => w.book_id))) { try { books[bid] = await loadBook(bid); } catch (e) { /* skip */ } }
+  const has = w => books[w.book_id] && books[w.book_id].glossary[w.word_id] && !books[w.book_id].glossary[w.word_id].g;
   const rank = w => (num(w.misses, 0) > 0 ? 0 : w.src === 'tap' ? 1 : 2);
-  const words = due.filter(w => books[w.book_id] && books[w.book_id].glossary[w.word_id]).sort((a, b) => rank(a) - rank(b)).slice(0, 30);
+  const words = due.filter(has).sort((a, b) => rank(a) - rank(b)).slice(0, 30);
+  const practice = seeded(extra.filter(has), 'bz' + t + num((stats()[t] || {}).bzRounds, 0)).slice(0, Math.max(0, BZ_SIZE - words.length));
   const pool = Object.keys(books).reduce((a, bid) => a.concat(Object.values(books[bid].glossary).filter(g => !g.g).map(g => g.base)), []);
-  const qs = words.map(w => wordQ(w, books[w.book_id].glossary[w.word_id], pool));
+  const qs = words.map(w => wordQ(w, books[w.book_id].glossary[w.word_id], pool))
+    .concat(practice.map(w => Object.assign(wordQ(w, books[w.book_id].glossary[w.word_id], pool), { practice: true })));
   // Up to 4 case questions a day: those due again first, then new ones.
   const cs = dueCases().map(c => ({ c, w: wordRow('case:' + c.id) })).sort((a, b) => (a.w ? 0 : 1) - (b.w ? 0 : 1)).slice(0, 4).map(x => caseQ(x.c));
   const out = [];
@@ -1099,16 +1128,16 @@ VIEWS.blitz = async () => {
     UI.bz = { phase: 'intro', round };
     return `<div class="page dark full">${head}
       <section class="stack" style="margin-top:80px;align-items:center;text-align:center;gap:18px">
-        <div style="font-size:96px;font-weight:700;line-height:1">${round.length || '✓'}</div>
-        <div style="font-size:20px;color:var(--dark-muted)">${round.length ? plural(round.length, 'вопрос', 'вопроса', 'вопросов') + ' на сегодня' : 'На сегодня всё'}</div>
-        ${round.length ? '<button class="btn amber" data-act="bzStart" style="margin-top:20px;padding:18px 64px;font-size:20px">Старт · 60 с</button>' : ''}
+        <div style="font-size:96px;font-weight:700;line-height:1">${round.length || '—'}</div>
+        <div style="font-size:20px;color:var(--dark-muted)">${round.length ? plural(round.length, 'вопрос', 'вопроса', 'вопросов') + (round.filter(q => !q.practice).length ? ' · ' + round.filter(q => !q.practice).length + ' на сегодня, остальные — повторение' : ' · повторение') : 'Слова для Блица берутся из книг. Прочитай первую главу — и они появятся.'}</div>
+        ${round.length ? '<button class="btn amber" data-act="bzStart" style="margin-top:20px;padding:18px 64px;font-size:20px">Старт · ' + (BZ_SECS / 60) + ' мин</button>' : ''}
       </section></div>`;
   }
   if (B.phase === 'run') {
     const q = B.round[B.qi] || B.round[B.round.length - 1];
     return `<div class="page dark full">${head}
       <div class="row" style="gap:18px"><b id="bzT" style="font-size:32px;width:56px;font-variant-numeric:tabular-nums">${B.t}</b>
-        <div class="bar amber grow" style="height:10px;background:var(--dark-line)"><i id="bzBar" style="width:${Math.round(B.t / 60 * 100)}%;transition:width 1s linear"></i></div>
+        <div class="bar amber grow" style="height:10px;background:var(--dark-line)"><i id="bzBar" style="width:${Math.round(B.t / BZ_SECS * 100)}%;transition:width 1s linear"></i></div>
         <b style="font-size:20px"><span style="color:#8FE3B5">✓</span> ${B.score}</b></div>
       <section class="stack" style="min-height:240px;padding-top:20px;gap:12px">
         <span class="bz-tag ${q.kind === 'case' ? 'case' : ''}">${q.tag}</span>
@@ -1125,7 +1154,7 @@ VIEWS.blitz = async () => {
       <div class="stack" style="margin-top:20px;gap:6px">${B.log.map(l => `<div class="row" style="gap:16px;padding:12px 16px;border-radius:12px;background:var(--dark2)">
         <div class="grow" style="font-size:18px">${esc(l.label)}</div>
         <div class="dots">${[0, 1, 2].map(i => '<i class="' + (i < l.s ? 'on' : '') + '"></i>').join('')}</div>
-        <div style="width:170px;text-align:right;font-size:14px;color:var(--dark-muted)">${l.s >= 3 ? (l.learned ? 'выучено!' : 'отдыхает месяц') : l.ok ? 'дальше — в другой день' : 'заново'}</div></div>`).join('')}</div>
+        <div style="width:170px;text-align:right;font-size:14px;color:var(--dark-muted)">${l.practice ? 'повторение' : l.s >= 3 ? (l.learned ? 'выучено!' : 'отдыхает месяц') : l.ok ? 'дальше — в другой день' : 'заново'}</div></div>`).join('')}</div>
       <div class="row" style="margin-top:22px"><a class="btn ghost" href="#/home" style="color:#FFFFFF;border-color:#5B6475">На полку</a><button class="btn amber" data-act="bzAgain">Ещё раунд</button></div>
     </section></div>`;
 };
@@ -1133,13 +1162,14 @@ VIEWS.blitz = async () => {
 function bzStart() {
   const B = UI.bz;
   if (!B || !B.round.length) return;
-  Object.assign(B, { phase: 'run', t: 60, qi: 0, score: 0, log: [], changed: {}, fb: '', old: 0, cases: 0 });
+  Object.assign(B, { phase: 'run', t: BZ_SECS, qi: 0, score: 0, log: [], changed: {}, fb: '', old: 0, cases: 0 });
+  bump('bzRounds');
   clearInterval(bzStart.timer);
   bzStart.timer = setInterval(() => {
     if (!UI.bz || UI.bz.phase !== 'run' || route().name !== 'blitz') { clearInterval(bzStart.timer); return; }
     UI.bz.t--;
     if (UI.bz.t <= 0) bzEnd();
-    else { const t = $('#bzT'), bar = $('#bzBar'); if (t) t.textContent = UI.bz.t; if (bar) bar.style.width = Math.round(UI.bz.t / 60 * 100) + '%'; }
+    else { const t = $('#bzT'), bar = $('#bzBar'); if (t) t.textContent = UI.bz.t; if (bar) bar.style.width = Math.round(UI.bz.t / BZ_SECS * 100) + '%'; }
   }, 1000);
   render();
 }
@@ -1150,7 +1180,10 @@ function bzPick(j) {
   const ok = j === q.a;
   const isCase = q.kind === 'case';
   const row = B.changed[q.key] || wordRow(q.key) || (isCase ? { key: q.key, book_id: 'case', word_id: q.key.slice(5), base: q.label, st: 'learning', s: 0, due: today(), misses: 0, src: 'case', added: today(), last: '' } : null);
-  if (row) {
+  if (row && q.practice && ok) {
+    // Practice (not due today): a right answer doesn't move the word on.
+    B.log = B.log.filter(l => l.key !== q.key).concat([{ key: q.key, label: q.label, s: row.st === 'learned' || row.st === 'archived' ? 3 : num(row.s, 0), ok, practice: true }]);
+  } else if (row) {
     const wasArchived = row.st === 'archived';
     const merged = Object.assign({}, row, ok ? rightAnswer(row) : wrongAnswer(row));
     B.changed[q.key] = merged;
@@ -1407,8 +1440,9 @@ VIEWS.me = () => {
   const hero = cal ? `<section class="darkcard stack" style="gap:12px">
       <div class="row" style="gap:10px"><span class="muted">Читаешь как носитель языка в возрасте</span>${info('level')}</div>
       <div style="font-size:44px;font-weight:700;line-height:1.1">${ym(lm)}</div>
-      <div class="bar amber" style="height:8px"><i style="width:${Math.round(num(s.lang_prog, 0) * 100)}%"></i></div>
+      <div class="bar amber" style="height:8px"><i style="width:${evidenceMonths() > num(s.lang_months, 0) ? 0 : Math.round(num(s.lang_prog, 0) * 100)}%"></i></div>
       <div class="small muted">До ${ym(lm + 1)}: проверки глав и новые слова</div>
+      ${evidenceMonths() && evidenceMonths() >= num(s.lang_months, 0) ? `<div class="small muted">Это видно по книгам: с первой попытки ты проходишь проверки в книгах этого уровня</div>` : ''}
       <div class="scale"><div class="rail"></div><div class="fill" style="width:${pos(lm)}%"></div>
         <div class="you" style="left:${pos(lm)}%"><b>ты</b><i></i></div>
         <div class="age" style="left:${pos(hm)}%"><span>твой возраст</span><i></i></div>
@@ -1539,7 +1573,7 @@ function finishTest() {
   const tested = Math.round(base * 12 + extra * gap * 12 * 0.75);
   // A level check is blended with the level his chapter checks have built up (60% test, 40% current),
   // and it never lowers it: a bad day keeps what he has earned. The first test sets the level on its own.
-  const months = T.recheck ? Math.max(T.before, Math.round(0.6 * tested + 0.4 * T.before)) : tested;
+  const months = T.recheck ? Math.max(T.before, evidenceMonths(), Math.round(0.6 * tested + 0.4 * T.before)) : Math.max(tested, evidenceMonths());
   T.result = { months, size, bands, fa, tested };
   T.phase = 'done';
   const hist = levelHistory().concat([{ d: today(), m: months, t: tested, s: size }]);
