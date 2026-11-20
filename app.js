@@ -235,7 +235,7 @@ function langMonths() { return num(S().lang_months, 111); }
 function hisMonths() { return S().dob ? monthsBetween(S().dob, today()) : 120; }
 function wpm() { return num(S().wpm, 150); }
 function aiOn() { return yes(S().ai_enabled); }
-function aiLeft() { const s = S(); return num(s.ai_per_day, 10) - (s.ai_used_date === today() ? num(s.ai_used, 0) : 0); }
+function aiLeft() { const s = S(); return num(s.ai_per_day, 20) - (s.ai_used_date === today() ? num(s.ai_used, 0) : 0); }
 
 // Difficulty: harder books pay more (capped at +25%), easier ones less. More than 2 years above: "later".
 const MULT = { '-2': 0.75, '-1': 0.9, '0': 1, '1': 1.15, '2': 1.25 };
@@ -833,6 +833,7 @@ const AI_ERRORS = {
   AI_LIMIT: 'На сегодня вопросы закончились. Завтра будут новые!',
   AI_QUOTA: 'Слишком много вопросов сразу. Попробуй через минуту.',
   AI_NOKEY: 'Вопросы ещё не настроены.',
+  AI_BUSY: 'ИИ сейчас перегружен. Попробуй через несколько минут — вопрос не потратился.',
 };
 function chatThread(kind, id) {
   const C = UI.chat && UI.chat.key === kind + ':' + id ? UI.chat : null;
@@ -1585,6 +1586,23 @@ async function parentCall(payload, okMsg) {
   return res;
 }
 
+/* Parent settings change on screen at once; they are sent together a moment after the last tap,
+   so the + and − buttons never wait for the server. */
+let pendingSet = {}, setTimer = 0;
+function setNow(set, okMsg) {
+  Object.assign(D.settings, set);
+  Object.assign(pendingSet, set);
+  saveCache(); render();
+  clearTimeout(setTimer);
+  setTimer = setTimeout(async () => {
+    const send = pendingSet; pendingSet = {};
+    const res = await run('parent', { pin: UI.parentPin, op: 'settings', set: send });
+    if (res && res.settings) { D = res; Object.assign(D.settings, pendingSet); saveCache(); if (okMsg) toast(okMsg); }
+    else { Object.assign(pendingSet, send); toast('Не сохранилось. Попробуйте ещё раз.', true); }
+    if (location.hash.indexOf('parent') > -1) render();
+  }, 700);
+}
+
 function connectFromLink(q) {
   const api = q.get('api'), key = q.get('key');
   if (api && key) { store.set('cfg', { api, key }); localStorage.removeItem('polka_cache'); D = null; toast('Подключено'); }
@@ -1731,12 +1749,12 @@ const ACTS = {
   },
   newPin: () => openPin('change'),
   decide: el => parentCall({ op: 'decide', id: el.dataset.id, approve: el.dataset.ok === '1' }, el.dataset.ok === '1' ? 'Одобрено. Теперь одобрите в «Экранном времени».' : 'Отклонено'),
-  toggleLock: () => parentCall({ op: 'settings', set: { locked: !yes(S().locked) } }),
-  toggleAi: () => parentCall({ op: 'settings', set: { ai_enabled: !aiOn() } }),
-  retest: () => { UI.test = null; parentCall({ op: 'settings', set: { placement_date: '' } }, 'Тест можно пройти заново'); },
+  toggleLock: () => setNow({ locked: !yes(S().locked) }),
+  toggleAi: () => setNow({ ai_enabled: !aiOn() }),
+  retest: () => { UI.test = null; setNow({ placement_date: '' }, 'Тест можно пройти заново'); },
   pset: el => {
     const k = el.dataset.k, v = Math.round(Math.min(Number(el.dataset.max), Math.max(Number(el.dataset.min), num(S()[k], 0) + Number(el.dataset.d))) * 10) / 10;
-    parentCall({ op: 'settings', set: { [k]: v } });
+    setNow({ [k]: v });
   },
   adjust: el => parentCall({ op: 'adjust', mins: Number(el.dataset.m), note: 'поправка' }, 'Баланс изменён'),
   connect: async () => {
