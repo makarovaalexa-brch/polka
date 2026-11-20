@@ -64,13 +64,21 @@ function toast(msg, err) {
 function cfg() { return store.get('cfg', { api: '', key: '' }); }
 function connected() { return !!cfg().api; }
 
-async function api(action, payload) {
+async function api(action, payload, timeoutMs) {
   const c = cfg();
   if (!c.api) {
     if (!IS_LOCAL) throw new Error('Приложение не подключено');
     return Mock.call(action, JSON.parse(JSON.stringify(payload || {})));
   }
-  const res = await fetch(c.api, { method: 'POST', body: JSON.stringify(Object.assign({}, payload, { action, key: c.key })) });
+  // An optional time limit (used for AI questions, which depend on Google's servers).
+  const ctl = timeoutMs && window.AbortController ? new AbortController() : null;
+  const timer = ctl ? setTimeout(() => ctl.abort(), timeoutMs) : 0;
+  let res;
+  try {
+    res = await fetch(c.api, { method: 'POST', body: JSON.stringify(Object.assign({}, payload, { action, key: c.key })), signal: ctl ? ctl.signal : undefined });
+  } catch (e) {
+    throw new Error(e.name === 'AbortError' ? 'TIMEOUT' : e.message);
+  } finally { clearTimeout(timer); }
   const j = await res.json();
   if (!j.ok) throw new Error(j.error);
   return j.data;
@@ -848,13 +856,15 @@ const AI_ERRORS = {
   AI_QUOTA: 'Слишком много вопросов сразу. Попробуй через минуту.',
   AI_NOKEY: 'Вопросы ещё не настроены.',
   AI_BUSY: 'ИИ сейчас перегружен. Попробуй через несколько минут — вопрос не потратился.',
+  AI_FAIL: 'Что-то пошло не так, ответа нет. Попробуй ещё раз чуть позже — вопрос не потратился.',
+  TIMEOUT: 'ИИ слишком долго думает. Попробуй ещё раз через минуту — вопрос не потратился.',
 };
 function chatThread(kind, id) {
   const C = UI.chat && UI.chat.key === kind + ':' + id ? UI.chat : null;
   if (!C || !C.msgs.length) return '';
   return '<div class="stack" style="gap:10px">' + C.msgs.map(m => `<div class="stack" style="gap:6px">
     <div style="align-self:flex-end;max-width:80%;padding:10px 14px;border-radius:14px 14px 4px 14px;background:var(--blue);color:#FFFFFF">${esc(m.q)}</div>
-    <div style="max-width:90%;padding:12px 14px;border-radius:14px 14px 14px 4px;background:#FFFFFF;line-height:1.55;white-space:pre-wrap">${m.a ? esc(m.a) : '<span class="muted">Думаю…</span>'}</div></div>`).join('') + '</div>';
+    <div style="max-width:90%;padding:12px 14px;border-radius:14px 14px 14px 4px;background:#FFFFFF;line-height:1.55;white-space:pre-wrap">${m.err ? '<span class="ai-err">' + esc(m.err) + '</span>' : m.a ? esc(m.a) : '<span class="typing" aria-label="ИИ думает"><i></i><i></i><i></i></span>'}</div></div>`).join('') + '</div>';
 }
 function chatPanel() {
   const C = UI.chat;
@@ -883,13 +893,13 @@ async function askAI(q, kind, bookId) {
   if (aiLeft() <= 0) return toast(AI_ERRORS.AI_LIMIT, true);
   const isBook = kind === 'book';
   const msg = { q, a: '' };
-  const history = C.msgs.filter(m => m.a).map(m => ({ q: m.q, a: m.a }));
+  const history = C.msgs.filter(m => m.a && !m.err).map(m => ({ q: m.q, a: m.a }));
   C.msgs.push(msg); C.busy = true; C.draft = '';
   const redraw = () => { if (isBook) render(); else if (UI.r && UI.r.chat) $('#rpanel').innerHTML = chatPanel(); };
   redraw();
   try {
     const res = await api('ask', isBook ? { kind: 'book', book_id: bookId, question: q, history }
-      : { kind: 'reader', book_id: UI.r.id, chapter: UI.r.n, page: visibleText(), question: q, history });
+      : { kind: 'reader', book_id: UI.r.id, chapter: UI.r.n, page: visibleText(), question: q, history }, 45000);
     msg.a = res.answer;
     D.settings.ai_used_date = today();
     D.settings.ai_used = num(D.settings.ai_used_date === today() ? D.settings.ai_used : 0, 0) + 1;
@@ -898,7 +908,7 @@ async function askAI(q, kind, bookId) {
     bump('asks');
   } catch (e) {
     const code = String(e.message).split(' ')[0];
-    msg.a = AI_ERRORS[code] || (/fetch|network/i.test(e.message) ? 'Нет связи. Спроси, когда будет интернет.' : 'Не получилось ответить. Попробуй ещё раз.');
+    msg.err = AI_ERRORS[code] || (/fetch|network|load/i.test(e.message) ? 'Нет связи. Спроси, когда будет интернет.' : 'Не получилось ответить. Попробуй ещё раз.');
   }
   C.busy = false;
   redraw();
