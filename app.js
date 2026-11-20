@@ -16,7 +16,7 @@ const yes = v => v === true || v === 'true';
 const fmt = n => Number(n).toLocaleString('ru-RU');
 const IS_LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 
-const APP_VERSION = 17; // keep equal to the number in sw.js's CACHE name
+const APP_VERSION = 18; // keep equal to the number in sw.js's CACHE name
 
 const store = {
   get(k, d) { try { const v = localStorage.getItem('polka_' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -1638,7 +1638,7 @@ VIEWS.parent = () => {
       </div>
       ${tricky.length ? '<div class="small">Чаще всего ошибается: ' + tricky.map(esc).join(', ') + '.</div>' : ''}
       ${step('Уровень языка (поправить)', 'lang_months', 1, 72, 192, v => ym(v))}
-      <div class="tiny muted">Версия приложения: ${APP_VERSION}</div>
+      <div class="row" style="gap:10px"><span class="tiny muted">Версия приложения: ${APP_VERSION}</span><button class="btn ghost small" data-act="update">Обновить приложение</button></div>
       <div class="row"><span class="grow small muted">Скорость чтения (ему не показывается): ${wpm()} сл/мин</span>${s.placement_date ? (levelDue() ? '' : '<button class="btn ghost small" data-act="retest">Проверить уровень сейчас</button>') : ''}</div>
     </section>
     <section class="stack" style="padding-top:18px;border-top:1px solid var(--line);gap:0"><h2 style="margin:0 0 6px">Награды</h2>
@@ -1889,6 +1889,7 @@ const ACTS = {
     location.hash = '#/home';
     await load();
   },
+  update: () => hardReload(),
   copyLink: async () => {
     const c = cfg();
     const link = location.origin + location.pathname + '#/connect?api=' + encodeURIComponent(c.api) + '&key=' + encodeURIComponent(c.key);
@@ -1914,5 +1915,32 @@ $('#sheet').addEventListener('click', e => { if (e.target.id === 'sheet') closeS
 // -------------------------------------------------------------- start ---
 
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js');
+
+/* Updates: iPad home-screen apps are rarely really closed, so the app checks for a newer version itself
+   whenever it is opened or comes back to the front. On the home screen it reloads at once; elsewhere
+   (reading, a test, a check) it offers a button, so nothing he is doing is lost. */
+async function hardReload() {
+  try { const regs = await navigator.serviceWorker.getRegistrations(); await Promise.all(regs.map(r => r.unregister())); } catch (e) { /* ignore */ }
+  try { const keys = await caches.keys(); await Promise.all(keys.map(k => caches.delete(k))); } catch (e) { /* ignore */ }
+  location.reload();
+}
+async function checkUpdate() {
+  if (IS_LOCAL || location.protocol !== 'https:') return;
+  try {
+    const txt = await (await fetch('sw.js?t=' + Date.now(), { cache: 'no-store' })).text();
+    const v = Number((txt.match(/polka-v(\d+)/) || [])[1] || 0);
+    if (v <= APP_VERSION) return;
+    const r = route().name;
+    if (r === 'home' || r === 'library' || r === 'collection' || r === 'quests') return hardReload();
+    if (!document.getElementById('updBar')) {
+      const bar = document.createElement('button');
+      bar.id = 'updBar'; bar.className = 'upd-bar'; bar.textContent = 'Есть обновление — обновить';
+      bar.onclick = hardReload;
+      document.body.appendChild(bar);
+    }
+  } catch (e) { /* offline: try next time */ }
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkUpdate(); });
+setTimeout(checkUpdate, 1500);
 if (D && Object.keys(BOOKS).length) render();
 load();
