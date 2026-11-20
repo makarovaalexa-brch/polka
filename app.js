@@ -450,7 +450,7 @@ VIEWS.lock = () => `<div class="page full" style="max-width:560px;padding-top:12
     <div style="font-size:18px;line-height:1.5">Чтобы открыть полку, нужна ссылка-приглашение. Её присылает родитель.</div>
     <details><summary class="small muted" style="cursor:pointer">Для родителей: подключить вручную</summary>
       <div class="stack" style="margin-top:12px">
-        <input class="field" id="cfgApi" placeholder="Адрес веб-приложения (…/exec)">
+        <input class="field" id="cfgApi" placeholder="Ссылка-приглашение или адрес веб-приложения (…/exec)">
         <input class="field" id="cfgKey" placeholder="APP_KEY">
         <button class="btn small" data-act="connect" style="align-self:flex-start">Подключить</button></div></details>
   </div></div>`;
@@ -1851,7 +1851,10 @@ const ACTS = {
   },
   adjust: el => parentCall({ op: 'adjust', mins: Number(el.dataset.m), note: 'поправка' }, 'Баланс изменён'),
   connect: async () => {
-    const api = $('#cfgApi').value.trim(), key = $('#cfgKey').value.trim();
+    let api = $('#cfgApi').value.trim(), key = ($('#cfgKey') ? $('#cfgKey').value : '').trim();
+    // The whole invitation link can be pasted into the first field.
+    const m = api.match(/[?&]api=([^&#\s]+).*[?&]key=([^&#\s]+)/);
+    if (m) { api = decodeURIComponent(m[1]); key = decodeURIComponent(m[2]); }
     store.set('cfg', { api, key });
     localStorage.removeItem('polka_cache');
     D = null; UI.parentOk = false;
