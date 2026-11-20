@@ -283,6 +283,19 @@ function coverHtml(b, w, h, fs) {
   return '<div class="cloth" style="width:' + w + ';height:' + h + 'px;background:' + (b.color || '#5B6475') + ';font-size:' + fs + 'px">' + esc(b.short || b.title) + '</div>';
 }
 
+/** Pass mark: three quarters of the questions, rounded up (6 of 8 for the final check). */
+function passMark(total) { return Math.ceil(total * 0.75); }
+/** How many times he has restarted this check (each restart draws new questions). */
+function tries(key) { return (store.get('tries', {}) || {})[key] || 0; }
+/** A copy of arr in an order fixed by seed. */
+function seeded(arr, seed) {
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i++) h = Math.imul(h ^ seed.charCodeAt(i), 16777619);
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) { h = Math.imul(h ^ (h >>> 15), 2246822507) >>> 0; const j = h % (i + 1); [a[i], a[j]] = [a[j], a[i]]; }
+  return a;
+}
+
 // Answer options are written right-answer-first; this rotates them the same way every time.
 function shuffle(opts, key) {
   let h = 0; for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) % 997;
@@ -381,7 +394,7 @@ const INFO = {
   ranks: 'Звание считается по словам, прочитанным за последние 3 месяца. Если перестать читать, оно может опуститься — и снова подняться, когда вернёшься к книгам.',
   bingo: 'Каждая прочитанная книга закрывает одну подходящую клетку. Ряд, столбец или диагональ — +10 мин, вся карточка — +30 мин. Потом можно начать новую карточку с другими клетками.',
   blitz: 'Слово уходит из списка после трёх верных ответов в разные дни: значение, слово в предложении, слово по значению. Ошибка — и слово начинает заново и вернётся ещё в этом раунде. После трёх ответов слово отдыхает месяц, потом одна проверка.',
-  quiz: 'Для зачёта нужно 3 верных из 4.',
+  quiz: 'Чем длиннее глава, тем больше вопросов. Для зачёта нужно три четверти верных ответов. Если не получилось, можно перечитать главу и попробовать ещё раз — вопросы будут другие.',
   final: 'Финальная проверка по всей книге: нужно 6 верных из 8.',
   ai: 'Можно спросить о том, что ты уже прочитал: что значит слово или фраза, почему герой так поступил. Ответы не рассказывают, что будет дальше.',
   quests: 'Каждый день — три новых задания, каждую неделю — два недельных. Комбо — если сделать все три задания дня.',
@@ -903,17 +916,22 @@ VIEWS.check = async r => {
     if (isFinal) qs = book.final.map((q, i) => Object.assign({ text: q.q }, shuffle(q.o, 'f' + i + q.q)));
     else {
       const ch = book.chapters[n - 1];
-      const qwIds = Object.keys(ch.qword || {});
-      // Question 4: a word he tapped in this chapter if possible, otherwise one not yet on his list.
-      const qw = qwIds.find(w => { const row = wordRow(id + ':' + w); return row && row.src === 'tap' && row.st === 'learning'; })
-        || qwIds.find(w => !wordRow(id + ':' + w)) || qwIds[0];
-      qs = ch.quiz.map((q, i) => Object.assign({ text: q.q }, shuffle(q.o, 'q' + n + i + q.q)));
-      if (qw) qs.push(Object.assign({ text: ch.qword[qw].q, qword: qw }, shuffle(ch.qword[qw].o, 'w' + qw)));
+      // Story questions grow with the chapter (about one per 450 words, 4 to 8), drawn from a bigger pool;
+      // every new try draws a different set, so retrying is not guessing.
+      const t = tries(key);
+      const nq = Math.min(ch.quiz.length, Math.max(4, Math.min(8, Math.round(ch.words / 450))));
+      const pick = seeded(ch.quiz.map((q, i) => i), key + ':' + t).slice(0, nq).sort((a, b) => a - b);
+      qs = pick.map(i => Object.assign({ text: ch.quiz[i].q }, shuffle(ch.quiz[i].o, 'q' + n + i + t + ch.quiz[i].q)));
+      // Two word questions: words he tapped first, then words not yet on his list.
+      const qwIds = seeded(Object.keys(ch.qword || {}), key + ':w' + t);
+      const rank = w => { const row = wordRow(id + ':' + w); return row && row.src === 'tap' && row.st === 'learning' ? 0 : !row ? 1 : 2; };
+      qwIds.sort((a, b) => rank(a) - rank(b)).slice(0, 2)
+        .forEach(qw => qs.push(Object.assign({ text: ch.qword[qw].q, qword: qw }, shuffle(ch.qword[qw].o, 'w' + qw + t))));
     }
     UI.check[key] = { qs, answers: {}, done: false, score: 0, passed: false };
   }
   const C = UI.check[key];
-  const need = isFinal ? 6 : 3;
+  const need = passMark(C.qs.length, isFinal);
   const qHtml = C.qs.map((q, i) => `<section class="q">
     <div class="qt"><span>${i + 1}</span><span>${esc(q.text)}</span></div>
     <div class="grid2" style="gap:10px">${q.opts.map((o, j) => {
@@ -942,7 +960,7 @@ function submitCheck(key) {
   const isFinal = which === 'final', n = isFinal ? 0 : parseInt(which, 10);
   const C = UI.check[key], b = BOOKS[id], book = bookNow(id);
   C.score = C.qs.filter((q, i) => C.answers[i] === q.a).length;
-  C.passed = C.score >= (isFinal ? 6 : 3);
+  C.passed = C.score >= passMark(C.qs.length, isFinal);
   C.done = true;
   const ops = [], set = {};
   const words = [];
@@ -954,14 +972,14 @@ function submitCheck(key) {
       const g = book.glossary[w];
       if (g && !g.g && !wordRow(id + ':' + w)) words.push(newWord(id, w, g.base, 'book'));
     });
-    const qi = C.qs.findIndex(q => q.qword);
-    if (qi > -1) {
-      const w = C.qs[qi].qword;
+    C.qs.forEach((q, qi) => {
+      if (!q.qword) return;
+      const w = q.qword;
       const row = wordRow(id + ':' + w) || words.find(x => x.word_id === w) || newWord(id, w, book.glossary[w].base, 'book');
       const merged = Object.assign({}, row, C.answers[qi] === C.qs[qi].a ? rightAnswer(row) : wrongAnswer(row));
       const k = words.findIndex(x => x.key === merged.key);
       if (k > -1) words[k] = merged; else words.push(merged);
-    }
+    });
     const already = passedCh(id) >= n;
     if (C.passed && !already) {
       mins = chMins(b, ch.words);
@@ -1707,7 +1725,7 @@ const ACTS = {
   // checks
   answer: el => { const C = UI.check[el.dataset.key]; if (C.done) return; C.answers[el.dataset.i] = Number(el.dataset.j); render(); },
   submitCheck: el => submitCheck(el.dataset.key),
-  retryCheck: el => { delete UI.check[el.dataset.key]; render(); window.scrollTo(0, 0); },
+  retryCheck: el => { const t = store.get('tries', {}); t[el.dataset.key] = (t[el.dataset.key] || 0) + 1; store.set('tries', t); delete UI.check[el.dataset.key]; render(); window.scrollTo(0, 0); },
   // blitz
   bzStart: () => bzStart(),
   bzPick: el => bzPick(Number(el.dataset.j)),
