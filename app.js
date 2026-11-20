@@ -219,6 +219,16 @@ async function load() {
     const [fresh, cat] = await Promise.all([api('bootstrap', {}), api('content', { name: 'catalog.json' })]);
     useCatalog(cat);
     store.set('catalog', cat);
+    // A parent reset his record: forget this device's own activity and unsent changes too.
+    const resetAt = (fresh.settings || {}).reset_at || '';
+    if (resetAt && store.get('reset_at', '') !== resetAt) {
+      ['stats', 'secrets', 'tries'].forEach(k => store.set(k, {}));
+      store.set('pagebuf', []);
+      try { Object.keys(localStorage).filter(k => k.indexOf('polka_pos_') === 0).forEach(k => localStorage.removeItem(k)); } catch (e) { /* ignore */ }
+      OUTBOX.length = 0; store.set('outbox', OUTBOX);
+      UI.check = {}; UI.test = null;
+      store.set('reset_at', resetAt);
+    }
     if (!OUTBOX.length) { D = fresh; saveCache(); }
     flush();
   } catch (e) {
