@@ -1542,35 +1542,58 @@ VIEWS.test = async () => {
     <a class="btn" href="#/library" style="align-self:flex-start">Посмотреть книги по силам</a></div>`;
 };
 
+/** Right answers needed to pass a passage: 2 of 3 (first test), otherwise all but one (4 of 5). */
+function passageMark(p) { const n = (p && p.q ? p.q.length : 3); return n <= 3 ? 2 : n - 1; }
+
+/* The level his vocabulary supports, in months. Bands are frequency groups (4: ranks 6–12 thousand,
+   5: 12–25 thousand, 6: rarer). Thresholds are a judgement, not research norms:
+   9 → 11 years as band 4 goes from 40% to 70% known; 11 → 13 as band 5 goes 30% → 60%;
+   13 → 15 as band 5 reaches 75% and band 6 goes 20% → 50%; above 15 needs most of band 6. */
+function vocabMonths(bands) {
+  const [, , p3, p4, p5, p6] = bands;
+  const ramp = (x, a, b) => Math.max(0, Math.min(1, (x - a) / (b - a)));
+  let age = 7 + 2 * ramp(p3, 0.5, 0.8);
+  if (p3 >= 0.8) age = 9 + 2 * ramp(p4, 0.4, 0.7);
+  if (p3 >= 0.8 && p4 >= 0.7) age = 11 + 2 * ramp(p5, 0.3, 0.6);
+  if (p3 >= 0.8 && p4 >= 0.85 && p5 >= 0.6) age = 13 + 2 * Math.min(ramp(p5, 0.6, 0.75), ramp(p6, 0.2, 0.5));
+  if (p4 >= 0.9 && p5 >= 0.75 && p6 >= 0.5) age = 15 + ramp(p6, 0.5, 0.8);
+  return Math.round(age * 12);
+}
+
 function finishTest() {
   const T = UI.test;
   // Vocabulary: share of each band he knows, corrected for guessing with the made-up words.
+  // Bands not in this version (later checks ask only rare words) count as known.
   const said = T.said;
   const fakes = said.filter(x => x.band === 0);
   const fa = fakes.length ? fakes.filter(x => x.v).length / fakes.length : 0;
   const bands = [1, 2, 3, 4, 5, 6].map(b => {
     const xs = said.filter(x => x.band === b);
-    if (!xs.length) return 0;
+    if (!xs.length) return 1;
     const h = xs.filter(x => x.v).length / xs.length;
     return Math.round(Math.max(0, Math.min(1, fa >= 1 ? 0 : (h - fa) / (1 - fa))) * 1000) / 1000;
   });
   // Words per band; the open-ended rarest band is counted as 10 000 (what a young reader could plausibly know).
   const SIZES = [1000, 2000, 3000, 6000, 13000, 10000];
   const size = Math.round(bands.reduce((a, p, i) => a + p * SIZES[i], 0));
-  // Reading: the hardest passage he understood (2 of 3), counting up from the easiest; part of the next adds months.
-  let base = T.passages[0].age - 2, extra = 0;
+  // Reading: the hardest passage he understood, counting up from the easiest; part of the next adds months.
+  let base = T.passages[0].age - 2, extra = 0, next = T.passages[0].age;
   for (let i = 0; i < T.scores.length; i++) {
-    if (T.scores[i] >= 2) base = T.passages[i].age;
-    else { extra = T.scores[i] / 3; break; }
+    if (T.scores[i] >= passageMark(T.passages[i])) { base = T.passages[i].age; next = (T.passages[i + 1] || {}).age || base + 2; }
+    else { extra = T.scores[i] / T.passages[i].q.length; next = T.passages[i].age; break; }
   }
-  const gap = T.passages.length > 1 ? T.passages[1].age - T.passages[0].age : 2;
-  const tested = Math.round(base * 12 + extra * gap * 12 * 0.75);
+  const reading = Math.round(base * 12 + extra * (next - base) * 12 * 0.75);
+  // The test result is the lower of what his reading and his vocabulary show: high marks on
+  // multiple-choice questions alone are not enough. Many made-up words "known" make the vocabulary
+  // part unreliable; the correction above already lowers it, and the parent sees a note.
+  const vocab = vocabMonths(bands);
+  const tested = Math.min(reading, vocab);
   // A level check is blended with the level his chapter checks have built up (60% test, 40% current),
   // and it never lowers it: a bad day keeps what he has earned. The first test sets the level on its own.
   const months = T.recheck ? Math.max(T.before, evidenceMonths(), Math.round(0.6 * tested + 0.4 * T.before)) : Math.max(tested, evidenceMonths());
-  T.result = { months, size, bands, fa, tested };
+  T.result = { months, size, bands, fa, tested, reading, vocab };
   T.phase = 'done';
-  const hist = levelHistory().concat([{ d: today(), m: months, t: tested, s: size }]);
+  const hist = levelHistory().concat([{ d: today(), m: months, t: tested, r: reading, v: vocab, s: size, fa: Math.round(fa * 16), p: T.scores }]);
   save(T.recheck ? [ledger('level', LEVEL_REWARD, 'level:' + today())] : [], {
     placement_date: today(), vocab_bands: JSON.stringify(bands), vocab_size: size, lang_months: months, lang_prog: 0,
     placement_count: num(S().placement_count, 0) + 1, level_history: JSON.stringify(hist.slice(-12)),
@@ -1608,6 +1631,7 @@ VIEWS.parent = () => {
       <div class="grid3">
         <div class="fact"><b>${calibrated() ? ym(langMonths()) : 'после 3 проверок'}</b><span class="tiny muted">читает как ребёнок-носитель этого возраста; ему ${ym(hisMonths())}</span></div>
         <div class="fact"><b>${s.vocab_size ? '≈ ' + fmt(num(s.vocab_size, 0)) : '—'}</b><span class="tiny muted">${s.placement_date ? 'словарный запас по тесту от ' + esc(s.placement_date) : 'тест на уровень не пройден'}</span></div>
+        ${(() => { const h = levelHistory().slice(-1)[0]; if (!h || h.r == null) return ''; return `<div class="fact"><b>${ym(h.r)} / ${ym(h.v)}</b><span class="tiny muted">последний тест: чтение / словарь (засчитано меньшее)${h.fa >= 3 ? ' · «узнал» ' + h.fa + ' выдуманных слов из 16 — словарь, возможно, завышен' : ''}</span></div>`; })()}
         <div class="fact"><b>${words.filter(w => w.st === 'learning').length} / ${words.filter(w => w.st === 'archived').length} / ${words.filter(w => w.st === 'learned').length}</b><span class="tiny muted">слов учит / отдыхают / выучено</span></div>
       </div>
       ${tricky.length ? '<div class="small">Чаще всего ошибается: ' + tricky.map(esc).join(', ') + '.</div>' : ''}
@@ -1818,7 +1842,7 @@ const ACTS = {
     const score = T.qs.filter((q, i) => T.answers[i] === q.a).length;
     T.scores.push(score);
     T.pi++; T.answers = {};
-    const failedTwice = T.scores.length >= 2 && T.scores.slice(-2).every(x => x < 2);
+    const failedTwice = T.scores.length >= 2 && T.scores.slice(-2).every((x, k) => x < passageMark(T.passages[T.scores.length - 2 + k]));
     if (T.pi >= T.passages.length || failedTwice) finishTest(); else { render(); window.scrollTo(0, 0); }
   },
   // quests, reviews
