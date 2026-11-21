@@ -16,7 +16,7 @@ const yes = v => v === true || v === 'true';
 const fmt = n => Number(n).toLocaleString('ru-RU');
 const IS_LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 
-const APP_VERSION = 27; // keep equal to the number in sw.js's CACHE name
+const APP_VERSION = 28; // keep equal to the number in sw.js's CACHE name
 
 const store = {
   get(k, d) { try { const v = localStorage.getItem('polka_' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -454,7 +454,7 @@ const INFO = {
   cover: 'Сколько слов из книги ты, скорее всего, знаешь — по тесту на уровень. Имена героев не считаются. Чем больше, тем легче читать.',
   ranks: 'Звание считается по словам, прочитанным за последние 3 месяца. Если перестать читать, оно может опуститься — и снова подняться, когда вернёшься к книгам.',
   bingo: 'Каждая прочитанная книга закрывает одну подходящую клетку. Ряд, столбец или диагональ — +10 мин, вся карточка — +30 мин. Потом можно начать новую карточку с другими клетками.',
-  blitz: 'В раунде до 20 вопросов на 2 минуты: сначала слова на сегодня, потом повторение других твоих слов. Слово уходит из списка после трёх верных ответов в разные дни: значение, слово в предложении, слово по значению. Ошибка — и слово начинает заново и вернётся ещё в этом раунде. После трёх ответов слово отдыхает месяц, потом одна проверка. Награда: за раунд, где ты ответил хотя бы на 10 слов, — +1 минута, за 20 верных — +2.',
+  blitz: 'В раунде до 20 вопросов на 2 минуты: сначала слова на сегодня, потом повторение других твоих слов. Слово уходит из списка после трёх верных ответов в разные дни: значение, слово в предложении, слово по значению. Ошибка — и слово начинает заново и вернётся ещё в этом раунде. После трёх ответов слово отдыхает месяц, потом одна проверка.',
   quiz: 'Чем длиннее глава, тем больше вопросов. Для зачёта нужно три четверти верных ответов. Если не получилось, можно перечитать главу и попробовать ещё раз — вопросы будут другие.',
   final: 'Финальная проверка по всей книге: нужно 6 верных из 8.',
   ai: 'Можно спросить о том, что ты уже прочитал: что значит слово или фраза, почему герой так поступил. Ответы не рассказывают, что будет дальше.',
@@ -562,7 +562,7 @@ VIEWS.home = () => {
       ${shortHtml}
     </section>
     <div class="grid2">
-      <a class="tile dark" href="#/blitz"><div class="t">${ICON.bolt}Блиц</div><div style="color:var(--dark-muted)">${due ? 'На сегодня ' + due + ' · +' + num(s.blitz_reward, 1) + ' мин за раунд от ' + BZ_MIN + ' ответов, +' + 2 * num(s.blitz_reward, 1) + ' за ' + BZ_GREAT + ' верных' : 'На сегодня всё'}</div></a>
+      <a class="tile dark" href="#/blitz"><div class="t">${ICON.bolt}Блиц</div><div style="color:var(--dark-muted)">${due ? 'На сегодня ' + due : 'На сегодня всё'}</div></a>
       <a class="tile light" href="#/quests"><div class="t">Задания<span class="small muted" style="margin-left:auto">${qDone} из ${q.length}</span></div>
         <div class="bar green"><i style="width:${Math.round(qDone / q.length * 100)}%"></i></div>
         <div class="small muted">${nextQ ? esc(nextQ.text.split('.')[0]) + ' · +' + nextQ.r + ' мин' : 'Все задания выполнены'}</div></a>
@@ -1181,7 +1181,7 @@ VIEWS.blitz = async () => {
   return `<div class="page dark full">${head}
     <section class="stack" style="margin-top:30px;gap:10px">
       <div style="font-size:64px;font-weight:700;line-height:1">${B.score} верно</div>
-      <div style="font-size:20px;color:var(--amber);font-weight:600">${won ? '+' + bzMins(B.score, B.qi) + ' мин' + (B.score < BZ_GREAT ? ' · ещё ' + (BZ_GREAT - B.score) + ' верных — и было бы +' + 2 * num(s.blitz_reward, 1) : '') : 'Награда — если ответить хотя бы на ' + BZ_MIN + ' слов'}</div>
+      <div style="font-size:20px;color:var(--amber);font-weight:600">${won ? '+' + bzMins(B.score, B.qi) + ' мин' : ''}</div>
       <div class="stack" style="margin-top:20px;gap:6px">${B.log.map(l => `<div class="row" style="gap:16px;padding:12px 16px;border-radius:12px;background:var(--dark2)">
         <div class="grow" style="font-size:18px">${esc(l.label)}</div>
         <div class="dots">${[0, 1, 2].map(i => '<i class="' + (i < l.s ? 'on' : '') + '"></i>').join('')}</div>
