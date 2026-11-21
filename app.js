@@ -16,7 +16,7 @@ const yes = v => v === true || v === 'true';
 const fmt = n => Number(n).toLocaleString('ru-RU');
 const IS_LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 
-const APP_VERSION = 22; // keep equal to the number in sw.js's CACHE name
+const APP_VERSION = 23; // keep equal to the number in sw.js's CACHE name
 
 const store = {
   get(k, d) { try { const v = localStorage.getItem('polka_' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -99,13 +99,13 @@ function saveCache() { store.set('cache', D); }
 
 /* Writes go into an outbox first (so nothing is lost without wifi) and are sent in order.
    Each op is applied to the local copy straight away. */
-const KEYS = { Progress: 'book_id', Checks: 'id', Words: 'key', Ledger: 'id' };
-const LOCAL = { Progress: 'progress', Checks: 'checks', Words: 'words', Ledger: 'ledger' };
+const KEYS = { Progress: 'book_id', Checks: 'id', Words: 'key', Ledger: 'id', Bugs: 'id' };
+const LOCAL = { Progress: 'progress', Checks: 'checks', Words: 'words', Ledger: 'ledger', Bugs: 'bugs' };
 const OUTBOX = store.get('outbox', []);
 
 function save(ops, settings) {
   (ops || []).forEach(op => {
-    const list = D[LOCAL[op.t]];
+    const list = D[LOCAL[op.t]] || (D[LOCAL[op.t]] = []);
     op.rows.forEach(r => {
       const i = list.findIndex(x => String(x[KEYS[op.t]]) === String(r[KEYS[op.t]]));
       if (i < 0) list.push(Object.assign({}, r)); else list[i] = Object.assign({}, list[i], r);
@@ -875,6 +875,7 @@ function aaPanel() {
     <div class="row" style="gap:8px">${seg('font', 'golos', 'Golos', "font-family:'Golos Text'")}${seg('font', 'ptserif', 'PT Serif', "font-family:'PT Serif'")}${seg('font', 'literata', 'Literata', 'font-family:Literata')}</div>
     <div class="row" style="gap:8px">${seg('spacing', 'tight', 'Плотнее')}${seg('spacing', 'normal', 'Обычно')}${seg('spacing', 'wide', 'Шире')}</div>
     <div class="row" style="gap:8px">${seg('theme', 'light', 'Светлый')}${seg('theme', 'sepia', 'Сепия')}${seg('theme', 'dark', 'Тёмный')}</div>
+    <button data-act="bug" style="align-self:flex-start;padding:6px 0;color:var(--blue);font-size:15px;font-weight:600">Сообщить об ошибке</button>
   </div>`;
 }
 
@@ -1485,7 +1486,7 @@ VIEWS.me = () => {
   const genres = ['Рассказ', 'Сказка', 'Повесть', 'Роман'].map(g => [g, done.filter(b => b.genre === g).length]);
   const gmax = Math.max(1, ...genres.map(g => g[1]));
   return `<div class="page">
-    <header class="head"><h1>Мой уровень</h1><button class="btn ghost small" data-act="parent">Родителям</button></header>
+    <header class="head"><h1>Мой уровень</h1><button class="btn ghost small" data-act="bug">Сообщить об ошибке</button><button class="btn ghost small" data-act="parent">Родителям</button></header>
     ${hero}
     <div class="grid3">
       <div class="card stat"><b>${s.vocab_size ? '≈ ' + fmt(Math.round(num(s.vocab_size, 0) / 100) * 100) : done.length}</b><span>${s.vocab_size ? 'слов в словарном запасе' : plural(done.length, 'книга прочитана', 'книги прочитаны', 'книг прочитано')}</span></div>
@@ -1742,6 +1743,7 @@ VIEWS.parent = () => {
       ${log.length ? '<div class="stack" style="margin-top:12px">' + log.map(l => `<div class="small"><b>${esc((BOOKS[l.book_id] || {}).short || l.book_id)}${l.chapter ? ', гл. ' + esc(l.chapter) : ''}:</b> ${esc(l.question)}<div class="muted" style="margin-top:2px">${esc(String(l.answer).slice(0, 220))}${String(l.answer).length > 220 ? '…' : ''}</div></div>`).join('') + '</div>' : ''}
     </section>
     ${reviews.length ? `<section class="stack" style="padding-top:18px;border-top:1px solid var(--line)"><h2 style="margin:0">Отзывы</h2>${reviews.map(p => `<div><b>${esc((BOOKS[p.book_id] || {}).short || p.book_id)}</b> ${'★'.repeat(num(p.stars, 0))}<div class="review" style="font-size:15px">${p.review ? '«' + esc(p.review) + '»' : ''}</div></div>`).join('')}</section>` : ''}
+    ${(D.bugs || []).length ? `<section class="stack" style="padding-top:18px;border-top:1px solid var(--line)"><h2 style="margin:0">Сообщения об ошибках</h2>${(D.bugs || []).slice().reverse().slice(0, 10).map(x => `<div class="small"><b>${esc(x.date)}</b> · <span class="muted">${esc(x.where)}</span><div>${esc(x.text)}</div></div>`).join('')}</section>` : ''}
     <section class="stack" style="padding-top:18px;border-top:1px solid var(--line)"><h2 style="margin:0">Подключение</h2>
       <input class="field" id="cfgApi" placeholder="Адрес веб-приложения (…/exec)" value="${esc(c.api)}">
       <input class="field" id="cfgKey" placeholder="APP_KEY" value="${esc(c.key)}">
@@ -1868,6 +1870,24 @@ const ACTS = {
     location.hash = '#/home';
   },
   newCard: () => { save([], { bingo_card: num(S().bingo_card, 1) + 1 }); toast('Новая карточка бинго!'); render(); },
+  // Bug report: what he writes, plus where he was (screen, book, chapter, page) and the app version.
+  bug: () => {
+    const R = UI.r;
+    UI.bugWhere = R ? 'читалка: ' + R.id + ', глава ' + R.n + ', стр. ' + (R.page + 1) + (R.look ? ' (листаю)' : '') : '#' + (location.hash.replace(/^#\/?/, '') || 'home');
+    openSheet(`<h3>Сообщить об ошибке</h3>
+      <div class="small muted">Что не так? Например: опечатка, неверный ответ в проверке, что-то не нажимается.</div>
+      <textarea id="bugText" rows="5" style="width:100%;font:inherit;font-size:17px;padding:10px;border-radius:10px;border:1px solid var(--line)"></textarea>
+      <div class="tiny muted">Место: ${esc(UI.bugWhere)}</div>
+      <div class="row" style="gap:10px;justify-content:flex-end"><button class="btn ghost" data-act="closeSheet">Отмена</button><button class="btn" data-act="bugSend">Отправить</button></div>`);
+    setTimeout(() => { const t = $('#bugText'); if (t) t.focus(); }, 50);
+  },
+  bugSend: () => {
+    const t = $('#bugText'), text = t ? t.value.trim() : '';
+    if (!text) return toast('Напиши, что случилось', true);
+    save([{ t: 'Bugs', rows: [{ id: rid(), date: today(), where: UI.bugWhere || '', text: text.slice(0, 2000), app: 'v' + APP_VERSION, device: navigator.userAgent.slice(0, 200) }] }]);
+    closeSheet();
+    toast('Спасибо! Отправлено');
+  },
   redeem: () => {
     const bal = balance();
     openSheet(`<h3>Потратить · есть ${bal} мин</h3>
