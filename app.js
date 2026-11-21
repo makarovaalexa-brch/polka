@@ -16,7 +16,7 @@ const yes = v => v === true || v === 'true';
 const fmt = n => Number(n).toLocaleString('ru-RU');
 const IS_LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 
-const APP_VERSION = 19; // keep equal to the number in sw.js's CACHE name
+const APP_VERSION = 20; // keep equal to the number in sw.js's CACHE name
 
 const store = {
   get(k, d) { try { const v = localStorage.getItem('polka_' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -265,10 +265,11 @@ function evidenceMonths(checks) {
   return best * 12 + (up.n >= 2 ? Math.floor(6 * up.r) : 0);
 }
 function placed() { return !!S().placement_date; }
-/* Level checks: the same test every 3 months, each time a version he has not seen (versions A, B, C...). */
+/* Level checks: the vocabulary test every 3 months, with words he has not seen. The new test is due at once
+   for anyone placed with the old one. */
 const LEVEL_EVERY = 90;
 function levelDueIn() { return placed() ? LEVEL_EVERY - Math.round((parseIso(today()) - parseIso(S().placement_date)) / 864e5) : 0; }
-function levelDue() { return placed() && levelDueIn() <= 0; }
+function levelDue() { return placed() && (!num(S().vt_count, 0) || levelDueIn() <= 0); }
 function levelHistory() { try { return JSON.parse(S().level_history || '[]'); } catch (e) { return []; } }
 const LEVEL_REWARD = 10;
 function calibrated() { return placed() || chapterChecks().filter(c => yes(c.passed)).length >= 3; }
@@ -433,7 +434,7 @@ const backBtn = to => '<a class="icon-btn" href="#/' + to + '" aria-label="На�
 const INFO = {
   lock: 'Начатую книгу нужно дочитать, прежде чем начать следующую. Сменить её раньше можно с разрешения родителя.',
   mult: 'Книги разложены по возрасту: для какого возраста они обычно у носителей языка. Книга выше твоего уровня даёт больше минут, до ×1,25; ниже — меньше, до ×0,75. Слишком сложные откроются, когда твой уровень вырастет.',
-  level: 'Это возраст ребёнка, для которого русский родной и который читает такие же книги, как ты. Если ты с первой попытки проходишь проверки глав в книгах для какого-то возраста, это и есть твой уровень. Между этим он понемногу растёт с каждой проверкой главы и выученными словами. Раз в три месяца — проверка уровня. Уровень никогда не опускается.',
+  level: 'Это возраст ребёнка, для которого русский родной и который читает такие же книги, как ты. Если ты с первой попытки проходишь проверки глав в книгах для какого-то возраста, это и есть твой уровень. Между этим он понемногу растёт с каждой проверкой главы и выученными словами. Раз в три месяца — проверка уровня: тест словаря, где ты сравниваешься с русскими школьниками, которые проходили те же слова. Уровень никогда не опускается.',
   cover: 'Сколько слов из книги ты, скорее всего, знаешь — по тесту на уровень. Имена героев не считаются. Чем больше, тем легче читать.',
   ranks: 'Звание считается по словам, прочитанным за последние 3 месяца. Если перестать читать, оно может опуститься — и снова подняться, когда вернёшься к книгам.',
   bingo: 'Каждая прочитанная книга закрывает одну подходящую клетку. Ряд, столбец или диагональ — +10 мин, вся карточка — +30 мин. Потом можно начать новую карточку с другими клетками.',
@@ -537,8 +538,8 @@ VIEWS.home = () => {
       <button class="btn small dark" data-act="redeem" ${pend || bal < 15 ? 'disabled' : ''}>Потратить</button>
     </header>
     ${tracks}
-    ${!placed() ? `<a class="card row" href="#/test" style="gap:14px"><span style="font-size:28px">🧭</span><div class="grow"><b>Тест на уровень · 10 минут</b><div class="small muted">Узнай, какие книги тебе по силам</div></div><span class="pill">Начать ›</span></a>`
-      : levelDue() ? `<a class="card row" href="#/test" style="gap:14px"><span style="font-size:28px">🧭</span><div class="grow"><b>Проверка уровня · 10 минут · +${LEVEL_REWARD} мин</b><div class="small muted">Прошло три месяца — посмотрим, насколько ты вырос</div></div><span class="pill">Начать ›</span></a>` : ''}
+    ${!placed() ? `<a class="card row" href="#/test" style="gap:14px"><span style="font-size:28px">🧭</span><div class="grow"><b>Тест на уровень · 6 минут</b><div class="small muted">Узнай, какие книги тебе по силам</div></div><span class="pill">Начать ›</span></a>`
+      : levelDue() ? `<a class="card row" href="#/test" style="gap:14px"><span style="font-size:28px">🧭</span><div class="grow"><b>${vtRecal() ? 'Новый тест словаря' : 'Проверка уровня'} · 6 минут · +${LEVEL_REWARD} мин</b><div class="small muted">${vtRecal() ? 'Точнее прежнего: слова сравниваются с ответами русских школьников' : 'Прошло три месяца — посмотрим, насколько ты вырос'}</div></div><span class="pill">Начать ›</span></a>` : ''}
     ${current}
     <section class="stack" style="gap:12px">
       <div class="row"><h2 class="grow" style="margin:0">Хочу прочитать</h2><a class="pill" href="#/library">Библиотека ›</a></div>
@@ -1499,119 +1500,181 @@ VIEWS.me = () => {
   </div>`;
 };
 
-// ---------------------------------------------------- placement test ---
+// ---------------------------------------------------- vocabulary test ---
 
-/* Two parts, about 10 minutes: 64 words «знаю / не знаю» (48 real ones from six frequency bands and 16
-   made-up ones that catch guessing), then short passages from easy to hard with three questions each.
-   Result: the language age (the hardest passage he understood) and how much of each band he knows. */
+/* The level test is a vocabulary test with real age norms (drive/vocab_test.json, built by
+   private/prep/build_vocab_test.py). Words and answer options come from the study behind the Russian
+   age-of-acquisition norms (Grigoriev et al., 2026): Russian pupils in grades 2, 4, 6, 8 and 10 picked
+   the meaning of each word from five options, and the share who got it right is known per grade.
+   The test is adaptive: 40 words, each chosen near his current estimate. «Не знаю» counts as wrong
+   (the pupils did not guess at random either). Result: the age whose average pupil would do as well. */
+const VT_GRID = Array.from({ length: 241 }, (_, i) => -6 + i * 0.05);
+function vtP(th, b, c) { return c + (1 - c) / (1 + Math.exp(-(th - b))); }
+function vtEstimate(post) {
+  const z = post.reduce((a, x) => a + x, 0);
+  const m = post.reduce((a, x, i) => a + x * VT_GRID[i], 0) / z;
+  const sd = Math.sqrt(post.reduce((a, x, i) => a + x * (VT_GRID[i] - m) ** 2, 0) / z);
+  return { th: m, sd };
+}
+/** Ability on the test scale → age in months (straight lines between the grade averages). */
+function vtMonths(V, th) {
+  const G = V.grades;
+  let k = 0;
+  while (k < G.length - 2 && th > G[k + 1].mu) k++;
+  const a = G[k], b = G[k + 1];
+  const age = a.age + (th - a.mu) / (b.mu - a.mu) * (b.age - a.age);
+  return Math.round(Math.max(7, Math.min(17.5, age)) * 12);
+}
+/** Words native speakers know by that age, from the 30 849-word norms (approximate). */
+function vtSize(V, months) {
+  const S2 = V.sizes || [], a = months / 12;
+  if (!S2.length) return 0;
+  if (a <= S2[0][0]) return S2[0][1];
+  for (let i = 0; i < S2.length - 1; i++) {
+    if (a <= S2[i + 1][0]) return Math.round(S2[i][1] + (a - S2[i][0]) * (S2[i + 1][1] - S2[i][1]));
+  }
+  return S2[S2.length - 1][1];
+}
+function vtSeen() { return String(S().vt_seen || '').split(',').filter(Boolean).map(Number); }
+function vtNext(T) {
+  const { th } = vtEstimate(T.post);
+  const pool = T.V.items.filter(x => !T.used.has(x.id) && !T.blocked.has(x.id));
+  pool.sort((x, y) => Math.abs(x.b - th) - Math.abs(y.b - th));
+  const it = pool[Math.floor(Math.random() * Math.min(4, pool.length))];
+  if (!it) return null;
+  const order = seeded([0, 1, 2, 3, 4], 'vt' + it.id + today());
+  return { id: it.id, w: it.w, b: it.b, opts: order.map(k => it.o[k]), a: order.indexOf(it.a) };
+}
+/** First test with this vocabulary test: it sets the level (it can be lower than the old test's). */
+function vtRecal() { return placed() && !num(S().vt_count, 0); }
+
 VIEWS.test = async () => {
   if (placed() && !levelDue() && !(UI.test && UI.test.phase === 'done')) {
     return `<div class="page full">${backBtn('me')}<div class="card big stack"><b style="font-size:22px">Тест уже пройден</b><div class="muted">Следующая проверка уровня — через ${levelDueIn()} ${plural(levelDueIn(), 'день', 'дня', 'дней')}.</div></div></div>`;
   }
-  let P;
-  try { P = await content('placement.json'); } catch (e) { toast('Не получилось загрузить тест', true); location.hash = '#/me'; return null; }
+  let V;
+  try { V = await content('vocab_test.json'); } catch (e) { toast('Не получилось загрузить тест', true); location.hash = '#/me'; return null; }
   if (!UI.test) {
-    // Version A is the first test; each later check takes the next version (and starts over after the last).
-    const forms = [{ real: P.real, fake: P.fake, passages: P.passages }].concat(P.forms || []);
-    const F = forms[num(S().placement_count, 0) % forms.length];
-    const items = seeded(F.real.map(r => ({ w: r.w, band: r.band })).concat(F.fake.map(w => ({ w, band: 0 }))), 'test' + today());
-    const passages = F.passages.slice().sort((a, b) => a.age - b.age);
-    UI.test = { phase: 'intro', items, i: 0, said: [], passages, pi: 0, answers: {}, scores: [], recheck: placed(), before: langMonths() };
+    // Words from earlier tests are left out while there are enough others; the oldest come back first.
+    let seen = vtSeen();
+    while (seen.length && V.items.length - seen.length < 80) seen = seen.slice(40);
+    const prior = VT_GRID.map(t => Math.exp(-0.5 * (t / 2) ** 2));
+    UI.test = { phase: 'intro', V, post: prior, used: new Set(), blocked: new Set(seen), seen, log: [], n: V.size || 40,
+      recheck: placed(), recal: vtRecal(), before: langMonths() };
   }
   const T = UI.test;
+  T.V = V;
   const head = `<header class="head">${backBtn('me')}<h1>${T.recheck ? 'Проверка уровня' : 'Тест на уровень'}</h1></header>`;
   if (T.phase === 'intro') return `<div class="page white full">${head}
     <div class="stack" style="gap:16px;font-size:18px;line-height:1.6;max-width:640px">
-      <p style="margin:0">Сначала будут слова: нажимай «Знаю», если понимаешь, что слово значит, и «Не знаю», если нет. Некоторые слова выдуманные — их честно отмечай «Не знаю».</p>
-      <p style="margin:0">Потом — несколько коротких текстов с вопросами, от лёгких к трудным. Не спеши и читай внимательно. Это не экзамен: так приложение подберёт книги тебе по силам.</p>
-      ${T.recheck ? `<p style="margin:0">Слова и тексты в этот раз новые. За проверку — +${LEVEL_REWARD} минут.</p>` : ''}
+      <p style="margin:0">${T.n} слов. У каждого — пять вариантов значения, выбери верный. Слова подбираются по ходу теста: если отвечаешь верно, они становятся труднее.</p>
+      <p style="margin:0">Если не знаешь слова, нажми «Не знаю» — не угадывай. Тест сравнивает тебя с русскими школьниками разного возраста, которые проходили те же слова, и угаданный ответ сделает результат неточным.</p>
+      ${T.recal ? `<p style="margin:0">Это новый тест, точнее прежнего: у него есть настоящие нормы по возрастам. После него уровень будет считаться по нему.</p>` : ''}
+      ${T.recheck ? `<p style="margin:0">Около 6 минут. За проверку — +${LEVEL_REWARD} минут.</p>` : '<p style="margin:0">Около 6 минут.</p>'}
       <button class="btn" data-act="testGo" style="align-self:flex-start">Начать</button></div></div>`;
-  if (T.phase === 'vocab') {
-    const it = T.items[T.i];
+  if (T.phase === 'run') {
+    if (!T.q) T.q = vtNext(T);
+    if (!T.q) { finishTest(); return null; }
+    const q = T.q, i = T.log.length;
     return `<div class="page white full">${head}
-      <div class="bar" style="height:6px"><i style="width:${Math.round(T.i / T.items.length * 100)}%"></i></div>
-      <div class="small muted">Слово ${T.i + 1} из ${T.items.length}</div>
-      <div style="text-align:center;font-size:52px;font-weight:700;padding:90px 0 70px">${esc(it.w)}</div>
-      <div class="grid2" style="max-width:560px;margin:0 auto;width:100%"><button class="btn ghost" style="min-height:76px;font-size:22px" data-act="testWord" data-v="0">Не знаю</button>
-        <button class="btn" style="min-height:76px;font-size:22px" data-act="testWord" data-v="1">Знаю</button></div></div>`;
+      <div class="bar" style="height:6px"><i style="width:${Math.round(i / T.n * 100)}%"></i></div>
+      <div class="small muted">Слово ${i + 1} из ${T.n}</div>
+      <div style="text-align:center;font-size:46px;font-weight:700;padding:56px 0 40px">${esc(q.w)}</div>
+      <div class="stack" style="gap:10px;max-width:560px;margin:0 auto;width:100%">
+        ${q.opts.map((o, j) => `<button class="opt" style="min-height:60px;font-size:19px" data-act="testPick" data-j="${j}">${esc(o)}</button>`).join('')}
+        <button class="btn ghost" style="min-height:56px;font-size:18px;margin-top:8px" data-act="testPick" data-j="-1">Не знаю</button></div></div>`;
   }
-  if (T.phase === 'read') {
-    const p = T.passages[T.pi];
-    const qs = p.q.map((q, i) => Object.assign({ text: q.q }, shuffle(q.o, 'p' + T.pi + i)));
-    T.qs = qs;
-    const all = qs.every((q, i) => T.answers[i] !== undefined);
-    return `<div class="page white full">${head}
-      <div class="small muted">Текст ${T.pi + 1} из ${T.passages.length}</div>
-      <article style="font-size:20px;line-height:1.65;max-width:660px">${p.title ? '<h2 style="margin:0 0 12px">' + esc(p.title) + '</h2>' : ''}${String(p.text).split('\n').filter(Boolean).map(x => '<p style="margin:0 0 .8em">' + esc(x) + '</p>').join('')}</article>
-      ${qs.map((q, i) => `<section class="q"><div class="qt"><span>${i + 1}</span><span>${esc(q.text)}</span></div>
-        <div class="grid2" style="gap:10px">${q.opts.map((o, j) => `<button class="opt ${T.answers[i] === j ? 'sel' : ''}" data-act="testAns" data-i="${i}" data-j="${j}">${esc(o)}</button>`).join('')}</div></section>`).join('')}
-      <button class="btn" data-act="testNext" style="align-self:flex-start" ${all ? '' : 'disabled'}>Дальше</button></div>`;
-  }
+  const R = T.result;
   return `<div class="page white full">${head}
-    <div class="darkcard stack" style="gap:12px"><span class="muted">Ты читаешь как носитель языка в возрасте</span>
-      <div style="font-size:44px;font-weight:700">${ym(T.result.months)}</div>
-      ${T.recheck ? `<div class="muted">${T.result.months > T.before ? 'Было ' + ym(T.before) + ' → стало ' + ym(T.result.months) + ' 🎉' : 'Уровень сохранён'} · +${LEVEL_REWARD} мин</div>` : ''}
-      <div class="muted">Словарный запас ≈ ${fmt(Math.round(T.result.size / 100) * 100)} слов · сравнение с детьми, для которых русский родной</div></div>
+    <div class="darkcard stack" style="gap:12px"><span class="muted">Твой словарь — как у носителя языка в возрасте</span>
+      <div style="font-size:44px;font-weight:700">${ym(R.tested)}</div>
+      ${T.recheck && !T.recal ? `<div class="muted">${R.months > T.before ? 'Уровень: было ' + ym(T.before) + ' → стало ' + ym(R.months) + ' 🎉' : 'Уровень сохранён: ' + ym(R.months)} · +${LEVEL_REWARD} мин</div>`
+        : T.recal ? `<div class="muted">Теперь твой уровень — ${ym(R.months)} · +${LEVEL_REWARD} мин</div>` : ''}
+      <div class="muted">${R.right} из ${R.n} слов · словарный запас ≈ ${fmt(Math.round(R.size / 500) * 500)} слов · сравнение с русскими школьниками</div></div>
     <a class="btn" href="#/library" style="align-self:flex-start">Посмотреть книги по силам</a></div>`;
 };
 
-/** Right answers needed to pass a passage: 2 of 3 (first test), otherwise all but one (4 of 5). */
-function passageMark(p) { const n = (p && p.q ? p.q.length : 3); return n <= 3 ? 2 : n - 1; }
-
-/* The level his vocabulary supports, in months. Bands are frequency groups (4: ranks 6–12 thousand,
-   5: 12–25 thousand, 6: rarer). Thresholds are a judgement, not research norms:
-   9 → 11 years as band 4 goes from 40% to 70% known; 11 → 13 as band 5 goes 30% → 60%;
-   13 → 15 as band 5 reaches 75% and band 6 goes 20% → 50%; above 15 needs most of band 6. */
-function vocabMonths(bands) {
-  const [, , p3, p4, p5, p6] = bands;
-  const ramp = (x, a, b) => Math.max(0, Math.min(1, (x - a) / (b - a)));
-  let age = 7 + 2 * ramp(p3, 0.5, 0.8);
-  if (p3 >= 0.8) age = 9 + 2 * ramp(p4, 0.4, 0.7);
-  if (p3 >= 0.8 && p4 >= 0.7) age = 11 + 2 * ramp(p5, 0.3, 0.6);
-  if (p3 >= 0.8 && p4 >= 0.85 && p5 >= 0.6) age = 13 + 2 * Math.min(ramp(p5, 0.6, 0.75), ramp(p6, 0.2, 0.5));
-  if (p4 >= 0.9 && p5 >= 0.75 && p6 >= 0.5) age = 15 + ramp(p6, 0.5, 0.8);
-  return Math.round(age * 12);
+function testPick(j) {
+  const T = UI.test, q = T.q;
+  if (!q) return;
+  const ok = j === q.a;
+  T.used.add(q.id);
+  T.log.push({ id: q.id, ok });
+  T.post = T.post.map((x, i) => x * (ok ? vtP(VT_GRID[i], q.b, T.V.c) : 1 - vtP(VT_GRID[i], q.b, T.V.c)));
+  const z = Math.max(...T.post); T.post = T.post.map(x => x / z);
+  T.q = null;
+  if (T.log.length >= T.n) finishTest(); else render();
 }
 
 function finishTest() {
-  const T = UI.test;
-  // Vocabulary: share of each band he knows, corrected for guessing with the made-up words.
-  // Bands not in this version (later checks ask only rare words) count as known.
-  const said = T.said;
-  const fakes = said.filter(x => x.band === 0);
-  const fa = fakes.length ? fakes.filter(x => x.v).length / fakes.length : 0;
-  const bands = [1, 2, 3, 4, 5, 6].map(b => {
-    const xs = said.filter(x => x.band === b);
-    if (!xs.length) return 1;
-    const h = xs.filter(x => x.v).length / xs.length;
-    return Math.round(Math.max(0, Math.min(1, fa >= 1 ? 0 : (h - fa) / (1 - fa))) * 1000) / 1000;
-  });
-  // Words per band; the open-ended rarest band is counted as 10 000 (what a young reader could plausibly know).
-  const SIZES = [1000, 2000, 3000, 6000, 13000, 10000];
-  const size = Math.round(bands.reduce((a, p, i) => a + p * SIZES[i], 0));
-  // Reading: the hardest passage he understood, counting up from the easiest; part of the next adds months.
-  let base = T.passages[0].age - 2, extra = 0, next = T.passages[0].age;
-  for (let i = 0; i < T.scores.length; i++) {
-    if (T.scores[i] >= passageMark(T.passages[i])) { base = T.passages[i].age; next = (T.passages[i + 1] || {}).age || base + 2; }
-    else { extra = T.scores[i] / T.passages[i].q.length; next = T.passages[i].age; break; }
-  }
-  const reading = Math.round(base * 12 + extra * (next - base) * 12 * 0.75);
-  // The test result is the lower of what his reading and his vocabulary show: high marks on
-  // multiple-choice questions alone are not enough. Many made-up words "known" make the vocabulary
-  // part unreliable; the correction above already lowers it, and the parent sees a note.
-  const vocab = vocabMonths(bands);
-  const tested = Math.min(reading, vocab);
-  // A level check is blended with the level his chapter checks have built up (60% test, 40% current),
-  // and it never lowers it: a bad day keeps what he has earned. The first test sets the level on its own.
-  const months = T.recheck ? Math.max(T.before, evidenceMonths(), Math.round(0.6 * tested + 0.4 * T.before)) : Math.max(tested, evidenceMonths());
-  T.result = { months, size, bands, fa, tested, reading, vocab };
+  const T = UI.test, V = T.V;
+  const { th, sd } = vtEstimate(T.post);
+  const tested = vtMonths(V, th);
+  const lo = vtMonths(V, th - sd), hi = vtMonths(V, th + sd);
+  const size = vtSize(V, tested);
+  // The first test of this kind sets the level (it replaces the old, overgenerous estimate). Later checks
+  // are blended with the current level (60% test, 40% current) and never lower it. Chapter checks can lift it.
+  const months = T.recal || !T.recheck ? Math.max(tested, evidenceMonths())
+    : Math.max(T.before, evidenceMonths(), Math.round(0.6 * tested + 0.4 * T.before));
+  const right = T.log.filter(x => x.ok).length;
+  T.result = { months, tested, lo, hi, size, right, n: T.log.length };
   T.phase = 'done';
-  const hist = levelHistory().concat([{ d: today(), m: months, t: tested, r: reading, v: vocab, s: size, fa: Math.round(fa * 16), p: T.scores }]);
+  const hist = levelHistory().concat([{ d: today(), k: 'vt', m: months, t: tested, lo, hi, s: size, n: right, of: T.log.length }]);
+  const seen = T.seen.concat(T.log.map(x => x.id));
   save(T.recheck ? [ledger('level', LEVEL_REWARD, 'level:' + today())] : [], {
-    placement_date: today(), vocab_bands: JSON.stringify(bands), vocab_size: size, lang_months: months, lang_prog: 0,
-    placement_count: num(S().placement_count, 0) + 1, level_history: JSON.stringify(hist.slice(-12)),
+    placement_date: today(), vocab_size: size, lang_months: months, lang_prog: 0,
+    placement_count: num(S().placement_count, 0) + 1, vt_count: num(S().vt_count, 0) + 1, vt_seen: seen.join(','),
+    level_history: JSON.stringify(hist.slice(-12)),
   });
   render();
+}
+
+// ------------------------------------------------- level signals (parent) ---
+
+/* What his reading shows about his vocabulary, for the parent only. It never changes the level.
+   Word ages come from the age-of-acquisition norms (drive/word_aoa.json: age by which native speakers
+   learn the word). Three signals:
+   - taps: the words he taps; many that native children learn 2+ years before his level = a warning;
+   - Блиц: words never missed, by word age; under 60% at his level = a warning;
+   - chapter checks at books of his level or harder: first tries passed; under half = a warning. */
+function levelSignals(aoa) {
+  const L = langMonths() / 12;
+  const words = (D.words || []).filter(w => w.book_id !== 'case');
+  const ageOf = w => aoa[w.base];
+  const taps = words.filter(w => w.src === 'tap' && ageOf(w) != null).map(ageOf).sort((a, b) => a - b);
+  const tapOld = taps.filter(a => a <= L - 2).length;
+  const asked = words.filter(w => ageOf(w) != null && (num(w.s, 0) > 0 || num(w.misses, 0) > 0 || w.st !== 'learning'));
+  const bands = [[0, 9], [9, 11], [11, 13], [13, 99]].map(([a, b]) => {
+    const xs = asked.filter(w => ageOf(w) >= a && ageOf(w) < b);
+    return { a, b, n: xs.length, r: xs.length ? xs.filter(w => !num(w.misses, 0)).length / xs.length : 0 };
+  });
+  const atLevel = asked.filter(w => ageOf(w) > L - 2 && ageOf(w) <= L);
+  const atRate = atLevel.length ? atLevel.filter(w => !num(w.misses, 0)).length / atLevel.length : 0;
+  const seen = new Set();
+  const first = chapterChecks().filter(c => { const k = c.book_id + ':' + c.chapter; if (seen.has(k)) return false; seen.add(k); return true; })
+    .filter(c => num((BOOKS[c.book_id] || {}).age, 0) >= Math.floor(L) - 1);
+  const firstOk = first.filter(c => num(c.score, 0) >= passMark(num(c.total, 0)) && num(c.total, 0) > 0).length;
+  const warn = [];
+  if (taps.length >= 20 && tapOld / taps.length > 0.4) warn.push('он часто нажимает слова, которые русские дети знают на 2 года раньше его уровня');
+  if (atLevel.length >= 10 && atRate < 0.6) warn.push('в Блице ошибается в словах своего уровня');
+  if (first.length >= 4 && firstOk / first.length < 0.5) warn.push('меньше половины проверок глав в книгах его уровня пройдено с первой попытки');
+  return { L, taps, tapOld, bands, atLevel: atLevel.length, atRate, first: first.length, firstOk, warn };
+}
+function signalsHtml() {
+  if (UI.aoa === undefined) {
+    UI.aoa = null;
+    content('word_aoa.json').then(x => { UI.aoa = x || {}; render(); }).catch(() => { UI.aoa = {}; render(); });
+  }
+  if (!UI.aoa) return '<div class="small muted">Загружаю…</div>';
+  const g = levelSignals(UI.aoa);
+  const p = x => Math.round(x * 100) + '%';
+  const med = g.taps.length ? g.taps[Math.floor(g.taps.length / 2)] : null;
+  return `<div class="stack" style="gap:8px">
+    ${g.warn.length ? `<div style="color:var(--red,#b3261e)"><b>Похоже, словарь ниже уровня в приложении:</b> ${g.warn.join('; ')}. Уровень в приложении от этого не снижается — стоит выбирать книги попроще.</div>`
+      : '<div class="small">Сигналов, что уровень завышен, пока нет.</div>'}
+    <div class="small muted">Нажатые слова: ${g.taps.length ? g.taps.length + ', обычно их знают дети ≈ ' + ru(med) + ' лет; ' + p(g.tapOld / g.taps.length) + ' — слова, которые знают к ' + ru(Math.round((g.L - 2) * 10) / 10) + ' годам' : 'пока нет'}.</div>
+    <div class="small muted">Блиц, слова без единой ошибки по возрасту усвоения: ${g.bands.map(b => (b.b > 90 ? b.a + '+' : b.a ? b.a + '–' + b.b : 'до ' + b.b) + ' лет — ' + (b.n ? p(b.r) + ' из ' + b.n : '—')).join(' · ')}.</div>
+    <div class="small muted">Проверки глав в книгах его уровня: ${g.first ? g.firstOk + ' из ' + g.first + ' с первой попытки' : 'пока нет'}.</div></div>`;
 }
 
 // ----------------------------------------------------------- parent ---
@@ -1644,10 +1707,15 @@ VIEWS.parent = () => {
       <div class="grid3">
         <div class="fact"><b>${calibrated() ? ym(langMonths()) : 'после 3 проверок'}</b><span class="tiny muted">читает как ребёнок-носитель этого возраста; ему ${ym(hisMonths())}</span></div>
         <div class="fact"><b>${s.vocab_size ? '≈ ' + fmt(num(s.vocab_size, 0)) : '—'}</b><span class="tiny muted">${s.placement_date ? 'словарный запас по тесту от ' + esc(s.placement_date) : 'тест на уровень не пройден'}</span></div>
-        ${(() => { const h = levelHistory().slice(-1)[0]; if (!h || h.r == null) return ''; return `<div class="fact"><b>${ym(h.r)} / ${ym(h.v)}</b><span class="tiny muted">последний тест: чтение / словарь (засчитано меньшее)${h.fa >= 3 ? ' · «узнал» ' + h.fa + ' выдуманных слов из 16 — словарь, возможно, завышен' : ''}</span></div>`; })()}
+        ${(() => { const h = levelHistory().slice(-1)[0]; if (!h) return '';
+          if (h.k === 'vt') return `<div class="fact"><b>${ym(h.t)}</b><span class="tiny muted">тест словаря ${esc(h.d)}: ${h.n} из ${h.of} слов; вероятно от ${ym(h.lo)} до ${ym(h.hi)}</span></div>`;
+          if (h.r == null) return '';
+          return `<div class="fact"><b>${ym(h.r)} / ${ym(h.v)}</b><span class="tiny muted">последний тест: чтение / словарь (засчитано меньшее)${h.fa >= 3 ? ' · «узнал» ' + h.fa + ' выдуманных слов из 16 — словарь, возможно, завышен' : ''}</span></div>`; })()}
         <div class="fact"><b>${words.filter(w => w.st === 'learning').length} / ${words.filter(w => w.st === 'archived').length} / ${words.filter(w => w.st === 'learned').length}</b><span class="tiny muted">слов учит / отдыхают / выучено</span></div>
       </div>
       ${tricky.length ? '<div class="small">Чаще всего ошибается: ' + tricky.map(esc).join(', ') + '.</div>' : ''}
+      <h3 style="margin:8px 0 0">Как уровень подтверждается в чтении</h3>
+      ${signalsHtml()}
       ${step('Уровень языка (поправить)', 'lang_months', 1, 72, 192, v => ym(v))}
       <div class="row" style="gap:10px"><span class="tiny muted">Версия приложения: ${APP_VERSION}</span><button class="btn ghost small" data-act="update">Обновить приложение</button></div>
       <div class="row"><span class="grow small muted">Скорость чтения (ему не показывается): ${wpm()} сл/мин</span>${s.placement_date ? (levelDue() ? '' : '<button class="btn ghost small" data-act="retest">Проверить уровень сейчас</button>') : ''}</div>
@@ -1842,23 +1910,8 @@ const ACTS = {
   bzPick: el => bzPick(Number(el.dataset.j)),
   bzAgain: () => { UI.bz = null; render(); },
   // placement test
-  testGo: () => { UI.test.phase = 'vocab'; render(); },
-  testWord: el => {
-    const T = UI.test, it = T.items[T.i];
-    T.said.push({ band: it.band, v: el.dataset.v === '1' });
-    T.i++;
-    if (T.i >= T.items.length) { T.phase = 'read'; T.pi = 0; T.answers = {}; }
-    render();
-  },
-  testAns: el => { UI.test.answers[el.dataset.i] = Number(el.dataset.j); render(); },
-  testNext: () => {
-    const T = UI.test;
-    const score = T.qs.filter((q, i) => T.answers[i] === q.a).length;
-    T.scores.push(score);
-    T.pi++; T.answers = {};
-    const failedTwice = T.scores.length >= 2 && T.scores.slice(-2).every((x, k) => x < passageMark(T.passages[T.scores.length - 2 + k]));
-    if (T.pi >= T.passages.length || failedTwice) finishTest(); else { render(); window.scrollTo(0, 0); }
-  },
+  testGo: () => { UI.test.phase = 'run'; render(); },
+  testPick: el => testPick(Number(el.dataset.j)),
   // quests, reviews
   claim: el => { save([ledger('quest', Number(el.dataset.r), el.dataset.ref)]); toast('+' + el.dataset.r + ' мин'); render(); },
   star: el => { UI.draftStars = Number(el.dataset.n); const t = $('#reviewText'); const keep = t ? t.value : ''; render(); const t2 = $('#reviewText'); if (t2) t2.value = keep; },

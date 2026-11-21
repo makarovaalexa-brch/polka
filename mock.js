@@ -10,9 +10,9 @@ const Mock = (() => {
     ratio: 0.5, final_pct: 50, blitz_reward: 1, ai_per_day: 0, ai_enabled: true, dob: '2015-09-01',
     lang_months: 112, lang_prog: 0.4, cur_book: 'kasht', locked: true, next_book: 'kur', shortlist: 'kur,timur,deti',
     best_blitz: 9, wpm: 150, wpm_updated: '', pin_hash: 'demo:1234', gemini_model: 'auto', ai_used_date: '', ai_used: 0,
-    placement_date: '', vocab_bands: '', vocab_size: 0, bingo_card: 1, placement_count: 0, level_history: '',
+    placement_date: '', vocab_bands: '', vocab_size: 0, bingo_card: 1, placement_count: 0, level_history: '', vt_count: 0, vt_seen: '',
   };
-  const CHILD_SETTINGS = ['next_book', 'shortlist', 'best_blitz', 'lang_months', 'lang_prog', 'cur_book', 'locked', 'placement_date', 'vocab_bands', 'vocab_size', 'bingo_card', 'placement_count', 'level_history'];
+  const CHILD_SETTINGS = ['next_book', 'shortlist', 'best_blitz', 'lang_months', 'lang_prog', 'cur_book', 'locked', 'placement_date', 'vocab_bands', 'vocab_size', 'bingo_card', 'placement_count', 'level_history', 'vt_count', 'vt_seen'];
   const KEYS = { Progress: 'book_id', Checks: 'id', Words: 'key', Ledger: 'id' };
   const id = () => 'r' + Math.random().toString(36).slice(2, 9);
   const pad = n => String(n).padStart(2, '0');
