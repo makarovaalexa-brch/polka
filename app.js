@@ -16,7 +16,7 @@ const yes = v => v === true || v === 'true';
 const fmt = n => Number(n).toLocaleString('ru-RU');
 const IS_LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 
-const APP_VERSION = 26; // keep equal to the number in sw.js's CACHE name
+const APP_VERSION = 27; // keep equal to the number in sw.js's CACHE name
 
 const store = {
   get(k, d) { try { const v = localStorage.getItem('polka_' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -454,7 +454,7 @@ const INFO = {
   cover: 'Сколько слов из книги ты, скорее всего, знаешь — по тесту на уровень. Имена героев не считаются. Чем больше, тем легче читать.',
   ranks: 'Звание считается по словам, прочитанным за последние 3 месяца. Если перестать читать, оно может опуститься — и снова подняться, когда вернёшься к книгам.',
   bingo: 'Каждая прочитанная книга закрывает одну подходящую клетку. Ряд, столбец или диагональ — +10 мин, вся карточка — +30 мин. Потом можно начать новую карточку с другими клетками.',
-  blitz: 'В раунде до 20 вопросов на 2 минуты: сначала слова на сегодня, потом повторение других твоих слов. Слово уходит из списка после трёх верных ответов в разные дни: значение, слово в предложении, слово по значению. Ошибка — и слово начинает заново и вернётся ещё в этом раунде. После трёх ответов слово отдыхает месяц, потом одна проверка. Награда: за каждый раунд — +1 минута, за 20 верных — +2.',
+  blitz: 'В раунде до 20 вопросов на 2 минуты: сначала слова на сегодня, потом повторение других твоих слов. Слово уходит из списка после трёх верных ответов в разные дни: значение, слово в предложении, слово по значению. Ошибка — и слово начинает заново и вернётся ещё в этом раунде. После трёх ответов слово отдыхает месяц, потом одна проверка. Награда: за раунд, где ты ответил хотя бы на 10 слов, — +1 минута, за 20 верных — +2.',
   quiz: 'Чем длиннее глава, тем больше вопросов. Для зачёта нужно три четверти верных ответов. Если не получилось, можно перечитать главу и попробовать ещё раз — вопросы будут другие.',
   final: 'Финальная проверка по всей книге: нужно 6 верных из 8.',
   ai: 'Можно спросить о том, что ты уже прочитал: что значит слово или фраза, почему герой так поступил. Ответы не рассказывают, что будет дальше.',
@@ -562,7 +562,7 @@ VIEWS.home = () => {
       ${shortHtml}
     </section>
     <div class="grid2">
-      <a class="tile dark" href="#/blitz"><div class="t">${ICON.bolt}Блиц</div><div style="color:var(--dark-muted)">${due ? 'На сегодня ' + due + ' · +' + num(s.blitz_reward, 1) + ' мин за раунд, +' + 2 * num(s.blitz_reward, 1) + ' за ' + BZ_GREAT + ' верных' : 'На сегодня всё'}</div></a>
+      <a class="tile dark" href="#/blitz"><div class="t">${ICON.bolt}Блиц</div><div style="color:var(--dark-muted)">${due ? 'На сегодня ' + due + ' · +' + num(s.blitz_reward, 1) + ' мин за раунд от ' + BZ_MIN + ' ответов, +' + 2 * num(s.blitz_reward, 1) + ' за ' + BZ_GREAT + ' верных' : 'На сегодня всё'}</div></a>
       <a class="tile light" href="#/quests"><div class="t">Задания<span class="small muted" style="margin-left:auto">${qDone} из ${q.length}</span></div>
         <div class="bar green"><i style="width:${Math.round(qDone / q.length * 100)}%"></i></div>
         <div class="small muted">${nextQ ? esc(nextQ.text.split('.')[0]) + ' · +' + nextQ.r + ' мин' : 'Все задания выполнены'}</div></a>
@@ -1177,11 +1177,11 @@ VIEWS.blitz = async () => {
       <div class="grid2" style="gap:12px">${q.opts.map((o, j) => `<button class="bz-opt" data-act="bzPick" data-j="${j}">${esc(o)}</button>`).join('')}</div>
       <div style="min-height:28px;font-size:18px;font-weight:600;color:${B.fbOk ? '#8FE3B5' : '#FF9C97'}">${esc(B.fb || '')}</div></div>`;
   }
-  const won = B.qi > 0;
+  const won = B.qi >= BZ_MIN;
   return `<div class="page dark full">${head}
     <section class="stack" style="margin-top:30px;gap:10px">
       <div style="font-size:64px;font-weight:700;line-height:1">${B.score} верно</div>
-      <div style="font-size:20px;color:var(--amber);font-weight:600">${won ? '+' + bzMins(B.score, B.qi) + ' мин' + (B.score < BZ_GREAT ? ' · ещё ' + (BZ_GREAT - B.score) + ' верных — и было бы +' + 2 * num(s.blitz_reward, 1) : '') : 'Без ответов — без награды'}</div>
+      <div style="font-size:20px;color:var(--amber);font-weight:600">${won ? '+' + bzMins(B.score, B.qi) + ' мин' + (B.score < BZ_GREAT ? ' · ещё ' + (BZ_GREAT - B.score) + ' верных — и было бы +' + 2 * num(s.blitz_reward, 1) : '') : 'Награда — если ответить хотя бы на ' + BZ_MIN + ' слов'}</div>
       <div class="stack" style="margin-top:20px;gap:6px">${B.log.map(l => `<div class="row" style="gap:16px;padding:12px 16px;border-radius:12px;background:var(--dark2)">
         <div class="grow" style="font-size:18px">${esc(l.label)}</div>
         <div class="dots">${[0, 1, 2].map(i => '<i class="' + (i < l.s ? 'on' : '') + '"></i>').join('')}</div>
@@ -1236,10 +1236,10 @@ function bzPick(j) {
   if (B.qi >= B.round.length) bzEnd(); else render();
 }
 
-/* Блиц pays for trying: every round he plays (at least one answer) pays the set minutes, and a round
-   with BZ_GREAT right answers pays twice that (parent's choice). */
-const BZ_GREAT = 20;
-function bzMins(score, answered) { const r = num(S().blitz_reward, 1); return !answered ? 0 : score >= BZ_GREAT ? 2 * r : r; }
+/* Блиц pays for trying: a round with at least BZ_MIN answers (right or wrong) pays the set minutes, and
+   one with BZ_GREAT right answers pays twice that (parent's choice). A round left to run out pays nothing. */
+const BZ_MIN = 10, BZ_GREAT = 20;
+function bzMins(score, answered) { const r = num(S().blitz_reward, 1); return answered < BZ_MIN ? 0 : score >= BZ_GREAT ? 2 * r : r; }
 function bzEnd() {
   clearInterval(bzStart.timer);
   const B = UI.bz;
@@ -1249,7 +1249,7 @@ function bzEnd() {
   const ops = [];
   const rows = Object.values(B.changed);
   if (rows.length) ops.push({ t: 'Words', rows });
-  ops.push({ t: 'Checks', rows: [{ id: rid(), date: today(), book_id: 'blitz', chapter: 'blitz', score: B.score, total: B.qi, passed: B.qi > 0, mins: bzMins(B.score, B.qi), words: 0 }] });
+  ops.push({ t: 'Checks', rows: [{ id: rid(), date: today(), book_id: 'blitz', chapter: 'blitz', score: B.score, total: B.qi, passed: B.qi >= BZ_MIN, mins: bzMins(B.score, B.qi), words: 0 }] });
   if (bzMins(B.score, B.qi)) ops.push(ledger('blitz', bzMins(B.score, B.qi)));
   bump('bzOld', B.old); bump('cases', B.cases);
   // Words that went to rest for a month nudge the language age.
