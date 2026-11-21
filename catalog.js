@@ -93,7 +93,7 @@ const DAILY_QUESTS = [
   { id: 'ch', icon: '📖', text: 'Пройди проверку главы', n: 1, r: 1, p: c => c.day.checks },
   { id: 'pg', icon: '📄', text: 'Прочитай 10 страниц', n: 10, r: 1, p: c => c.day.pages },
   { id: 'min', icon: '⏳', text: 'Почитай 15 минут', n: 15, r: 1, p: c => Math.floor(c.day.secs / 60) },
-  { id: 'bz', icon: '⚡', text: 'Блиц: 6 верных за раунд', n: 6, r: 1, p: c => c.day.bzBest },
+  { id: 'bz', icon: '⚡', text: 'Блиц: 15 верных за раунд', n: 15, r: 1, p: c => c.day.bzBest },
   { id: 'old', icon: '🔁', text: 'Блиц: ответь правильно на 5 слов, которые учишь давно', n: 5, r: 1, p: c => c.day.bzOld },
   { id: 'ask', icon: '💬', text: 'Задай вопрос о книге', n: 1, r: 1, p: c => c.day.asks, when: c => c.ai },
   { id: 'heart', icon: '♡', text: 'Загляни в библиотеку и отметь книгу, которую хочешь прочитать', n: 1, r: 1, p: c => c.day.hearts },
