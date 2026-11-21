@@ -16,7 +16,7 @@ const yes = v => v === true || v === 'true';
 const fmt = n => Number(n).toLocaleString('ru-RU');
 const IS_LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 
-const APP_VERSION = 25; // keep equal to the number in sw.js's CACHE name
+const APP_VERSION = 26; // keep equal to the number in sw.js's CACHE name
 
 const store = {
   get(k, d) { try { const v = localStorage.getItem('polka_' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -37,6 +37,20 @@ function monthsBetween(from, to) {
 function plural(n, one, few, many) {
   const a = n % 10, b = n % 100;
   return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many;
+}
+/** 2026-11-21 → 21 ноября 2026 */
+function dateRu(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ''));
+  if (!m) return '';
+  const M = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+  return Number(m[3]) + ' ' + M[Number(m[2]) - 1] + ' ' + m[1];
+}
+/** When he read a book: «Прочитана 21 ноября 2026» or «Читал с 3 по 21 ноября 2026». */
+function readWhen(p) {
+  if (!p || !p.finished) return '';
+  const a = String(p.started || '').slice(0, 10), b = String(p.finished).slice(0, 10);
+  if (!a || a === b) return 'Прочитана ' + dateRu(b);
+  return 'Читал с ' + (a.slice(0, 7) === b.slice(0, 7) ? Number(a.slice(8, 10)) : dateRu(a).replace(/ \d{4}$/, a.slice(0, 4) === b.slice(0, 4) ? '' : ' ' + a.slice(0, 4))) + ' по ' + dateRu(b);
 }
 /** 9 лет 3 мес. */
 function ym(m) {
@@ -624,12 +638,12 @@ VIEWS.book = r => {
   let review = '';
   if (done) {
     if (p && num(p.stars, 0)) {
-      review = `<section class="stack" style="padding-top:18px;border-top:1px solid var(--line)"><h2>Твой отзыв</h2>
+      review = `<section class="stack" style="padding-top:18px;border-top:1px solid var(--line)"><h2>Твой отзыв</h2><div class="small muted">${esc(readWhen(p))}</div>
         <div class="stars">${'★★★★★'.slice(0, num(p.stars, 0))}${'☆☆☆☆☆'.slice(0, 5 - num(p.stars, 0))}</div>
         ${p.review ? '<div class="review">«' + esc(p.review) + '»</div>' : ''}</section>`;
     } else {
       const st = UI.draftStars || 0;
-      review = `<section class="stack" id="review" style="padding-top:18px;border-top:1px solid var(--line)"><h2>Оцени книгу</h2>
+      review = `<section class="stack" id="review" style="padding-top:18px;border-top:1px solid var(--line)"><h2>Оцени книгу</h2><div class="small muted">${esc(readWhen(p))}</div>
         <div class="row" style="gap:10px">${[1, 2, 3, 4, 5].map(n => `<button class="starbtn ${n <= st ? 'on' : ''}" data-act="star" data-n="${n}" aria-label="${n} из 5">★</button>`).join('')}</div>
         <textarea class="field" id="reviewText" rows="3" placeholder="Что понравилось, что нет? Можно по-английски."></textarea>
         <button class="btn" data-act="saveReview" data-id="${id}" style="align-self:flex-start" ${st ? '' : 'disabled'}>Сохранить</button></section>`;
