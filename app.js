@@ -16,7 +16,7 @@ const yes = v => v === true || v === 'true';
 const fmt = n => Number(n).toLocaleString('ru-RU');
 const IS_LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 
-const APP_VERSION = 29; // keep equal to the number in sw.js's CACHE name
+const APP_VERSION = 30; // keep equal to the number in sw.js's CACHE name
 
 const store = {
   get(k, d) { try { const v = localStorage.getItem('polka_' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -389,12 +389,21 @@ const readDay = d => (d.pages || 0) >= 3;
 // ------------------------------------------------------------- words ---
 
 function wordRow(key) { return (D.words || []).find(w => w.key === key); }
+// The same word in another book is the same word: matched by its base form.
+const baseKey = b => String(b || '').trim().toLowerCase().replace(/ё/g, 'е');
+function wordByBase(base) { const k = baseKey(base); return (D.words || []).find(w => w.book_id !== 'case' && baseKey(w.base) === k); }
+/** His row for a glossary word: this book's own, or the same base from another book. */
+function wordFor(bookId, wid, g) { return wordRow(bookId + ':' + wid) || (g && !g.g ? wordByBase(g.base) : null); }
+/** Bases he has shown he knows (resting or learned): no underline for them in other books. */
+function knownBases() { return new Set((D.words || []).filter(w => w.book_id !== 'case' && (w.st === 'archived' || w.st === 'learned')).map(w => baseKey(w.base))); }
 function newWord(bookId, id, base, src) {
   return { key: bookId + ':' + id, book_id: bookId, word_id: id, base, st: 'learning', s: 0, due: today(), misses: 0, src, added: today(), last: '' };
 }
-/** After a right answer: 1 → tomorrow, 2 → in 3 days, 3 → rests for a month. */
+/** After a right answer: 1 → tomorrow, 2 → in 3 days, 3 → rests for a month.
+ *  A word he never tapped and gets right the first time rests for a month straight away. */
 function rightAnswer(w) {
   if (w.st === 'archived') return { st: 'learned', s: 3, due: '', last: today() };
+  if (w.src === 'book' && w.st === 'learning' && !num(w.s, 0) && !num(w.misses, 0)) return { st: 'archived', s: 3, due: addDays(today(), 30), last: today() };
   const s = num(w.s, 0) + 1;
   return s >= 3 ? { st: 'archived', s: 3, due: addDays(today(), 30), last: today() } : { s, due: addDays(today(), s === 1 ? 1 : 3), last: today() };
 }
@@ -701,10 +710,14 @@ VIEWS.read = async r => {
   if (!UI.chat || UI.chat.key !== 'reader:' + id + ':' + n) UI.chat = { key: 'reader:' + id + ':' + n, msgs: [], busy: false };
   const passed = passedCh(id) >= n;
   const secret = look ? null : SECRETS[id + ':' + n];
+  // Words he knows from other books stay tappable but lose the underline (the secret word keeps it).
+  const known = knownBases();
+  const own = new Set((D.words || []).filter(w => w.book_id === id).map(w => w.word_id));
+  const hwCls = wid => { const g = book.glossary[wid]; return g && !g.g && !own.has(wid) && known.has(baseKey(g.base)) && !(secret && secret.id === wid) ? 'hw kn' : 'hw'; };
   const html = ch.blocks.map(bl => {
     if (typeof bl === 'object' && bl.img) return `<figure>${asset(bl.img, 'style="width:' + (bl.w || 360) + 'px" data-act="zoom"')}</figure>`;
     // A block with line breaks is a stanza of verse: keep its lines.
-    return (bl.indexOf('\n') > -1 ? '<p class="verse">' : '<p>') + esc(bl).replace(/\{(\w+)\|([^}]+)\}/g, (m, wid, text) => `<span class="hw" role="button" data-act="word" data-id="${wid}">${text}</span>`).replace(/\n/g, '<br>') + '</p>';
+    return (bl.indexOf('\n') > -1 ? '<p class="verse">' : '<p>') + esc(bl).replace(/\{(\w+)\|([^}]+)\}/g, (m, wid, text) => `<span class="${hwCls(wid)}" role="button" data-act="word" data-id="${wid}">${text}</span>`).replace(/\n/g, '<br>') + '</p>';
   }).join('');
   const end = look ? `<div class="end">${n < book.chapters.length ? `<a class="btn ghost" href="#/read/${id}/${n + 1}?look=1">Глава ${n + 1} ›</a>` : ''}<a class="btn ghost" href="#/book/${id}">К книге</a></div>`
     : n < book.chapters.length || !passed
@@ -911,7 +924,7 @@ function tapWord(wid) {
   const R = UI.r, book = bookNow(R.id);
   const g = book && book.glossary[wid];
   if (!g) return;
-  if (!R.look && !g.g && !wordRow(R.id + ':' + wid)) save([{ t: 'Words', rows: [newWord(R.id, wid, g.base, 'tap')] }]);
+  if (!R.look && !g.g && !wordFor(R.id, wid, g)) save([{ t: 'Words', rows: [newWord(R.id, wid, g.base, 'tap')] }]);
   const secret = R.look ? null : SECRETS[R.id + ':' + R.n];
   if (secret && secret.id === wid && !secretFound(R.id, R.n)) {
     const found = store.get('secrets', {});
@@ -1019,7 +1032,7 @@ VIEWS.check = async r => {
       qs = pick.map(i => Object.assign({ text: ch.quiz[i].q }, shuffle(ch.quiz[i].o, 'q' + n + i + t + ch.quiz[i].q)));
       // Two word questions: words he tapped first, then words not yet on his list.
       const qwIds = seeded(Object.keys(ch.qword || {}), key + ':w' + t);
-      const rank = w => { const row = wordRow(id + ':' + w); return row && row.src === 'tap' && row.st === 'learning' ? 0 : !row ? 1 : 2; };
+      const rank = w => { const row = wordFor(id, w, book.glossary[w]); return row && row.src === 'tap' && row.st === 'learning' ? 0 : !row ? 1 : 2; };
       qwIds.sort((a, b) => rank(a) - rank(b)).slice(0, 2)
         .forEach(qw => qs.push(Object.assign({ text: ch.qword[qw].q, qword: qw }, shuffle(ch.qword[qw].o, 'w' + qw + t))));
     }
@@ -1065,12 +1078,12 @@ function submitCheck(key) {
     // Hard words of a finished chapter join his list even if he did not tap them.
     hardIds(ch).forEach(w => {
       const g = book.glossary[w];
-      if (g && !g.g && !wordRow(id + ':' + w)) words.push(newWord(id, w, g.base, 'book'));
+      if (g && !g.g && !wordFor(id, w, g) && !words.some(x => baseKey(x.base) === baseKey(g.base))) words.push(newWord(id, w, g.base, 'book'));
     });
     C.qs.forEach((q, qi) => {
       if (!q.qword) return;
       const w = q.qword;
-      const row = wordRow(id + ':' + w) || words.find(x => x.word_id === w) || newWord(id, w, book.glossary[w].base, 'book');
+      const row = words.find(x => x.word_id === w) || wordFor(id, w, book.glossary[w]) || newWord(id, w, book.glossary[w].base, 'book');
       const merged = Object.assign({}, row, C.answers[qi] === C.qs[qi].a ? rightAnswer(row) : wrongAnswer(row));
       const k = words.findIndex(x => x.key === merged.key);
       if (k > -1) words[k] = merged; else words.push(merged);

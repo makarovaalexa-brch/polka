@@ -145,6 +145,7 @@ input.field { width: 100%; padding: 12px 14px; border-radius: 12px; border: 1px 
   background-image: radial-gradient(circle, var(--r-under) 1.1px, transparent 1.4px);
   background-size: 5px 3px; background-repeat: repeat-x; background-position: 0 100%;
   -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+.hw.kn { background-image: none; }
 .r-cols p.verse { margin: 0 0 1.4em; padding-left: 1.2em; break-inside: avoid; }
 .r-tap { position: absolute; top: 0; bottom: 0; width: 13%; z-index: 1; }
 .r-tap.l { left: 0; } .r-tap.r { right: 0; }
