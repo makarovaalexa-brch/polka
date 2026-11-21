@@ -16,7 +16,7 @@ const yes = v => v === true || v === 'true';
 const fmt = n => Number(n).toLocaleString('ru-RU');
 const IS_LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 
-const APP_VERSION = 28; // keep equal to the number in sw.js's CACHE name
+const APP_VERSION = 29; // keep equal to the number in sw.js's CACHE name
 
 const store = {
   get(k, d) { try { const v = localStorage.getItem('polka_' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -715,6 +715,7 @@ VIEWS.read = async r => {
     <header class="r-bar">
       <a class="r-icon" href="${look ? '#/book/' + id : '#/home'}" aria-label="${look ? 'К книге' : 'На полку'}">${ICON.back}</a>
       <div class="title">${esc(b.short)} · Глава ${n}${look ? ' · просто листаю' : ''}${secret && !secretFound(id, n) ? ' · 🔎' : ''}</div>
+      ${look ? `<button class="r-icon" data-act="toc" aria-label="Главы и страницы" style="width:auto;padding:0 10px;font-size:15px;font-weight:600">Главы</button>` : ''}
       ${aiOn() ? `<button class="r-icon" data-act="chat" aria-label="Обсудить">${ICON.chat}</button>` : ''}
       <button class="r-icon" data-act="aa" aria-label="Текст">Aa</button>
     </header>
@@ -878,7 +879,18 @@ function sentenceAround(para, phrase) {
 }
 function hideAskSel() { const b = $('#askSel'); if (b) b.hidden = true; }
 
-function closePanel() { const p = $('#rpanel'); if (p) p.innerHTML = ''; if (UI.r) { UI.r.aa = false; UI.r.pop = null; UI.r.chat = false; } }
+/** Leafing through: every chapter, and a slider to jump to any page of this one. */
+function tocPanel() {
+  const R = UI.r, book = bookNow(R.id);
+  if (!book) return '';
+  return `<div class="r-panel r-aa" style="max-height:70vh;overflow:auto">
+    <div class="small muted">Страница <b id="tocPg">${R.page + 1}</b> из ${R.pages}</div>
+    <input type="range" id="tocRange" min="1" max="${R.pages}" value="${R.page + 1}" style="width:100%">
+    <div class="stack" style="gap:2px">${book.chapters.map((c, i) => `<a href="#/read/${R.id}/${i + 1}?look=1" class="row" style="gap:10px;padding:9px 4px;border-radius:8px;${i + 1 === R.n ? 'background:var(--soft);font-weight:700' : ''}">
+      <span class="muted" style="width:24px">${i + 1}</span><span class="grow">${esc(c.title || 'Глава ' + (i + 1))}</span><span class="tiny muted">${pagesText(c)}</span></a>`).join('')}</div>
+  </div>`;
+}
+function closePanel() { const p = $('#rpanel'); if (p) p.innerHTML = ''; if (UI.r) { UI.r.aa = false; UI.r.toc = false; UI.r.pop = null; UI.r.chat = false; } }
 
 function aaPanel() {
   const P = UI.r.prefs;
@@ -1921,6 +1933,7 @@ const ACTS = {
   pg: el => turnPage(Number(el.dataset.d)),
   word: el => { if (UI.r) UI.r.lastWord = sentenceAround(el.closest('p') ? el.closest('p').textContent : '', el.textContent); tapWord(el.dataset.id); },
   closePanel: () => closePanel(),
+  toc: () => { const p = $('#rpanel'); if (UI.r.toc) { closePanel(); return; } closePanel(); UI.r.toc = true; p.innerHTML = tocPanel(); },
   aa: () => { const p = $('#rpanel'); if (UI.r.aa) closePanel(); else { closePanel(); UI.r.aa = true; p.innerHTML = aaPanel(); } },
   pref: el => {
     UI.r.prefs[el.dataset.k] = el.dataset.v;
@@ -2025,6 +2038,13 @@ document.addEventListener('keydown', e => {
   if (e.target.id === 'askBook') ACTS.askBook(document.querySelector('[data-act=askBook]'));
 });
 $('#sheet').addEventListener('click', e => { if (e.target.id === 'sheet') closeSheet(); });
+// The page slider in «Главы» (leafing through): moves straight to that page.
+document.addEventListener('input', e => {
+  if (e.target.id !== 'tocRange' || !UI.r) return;
+  UI.r.page = Math.max(0, Math.min(UI.r.pages - 1, Number(e.target.value) - 1));
+  const t = $('#tocPg'); if (t) t.textContent = UI.r.page + 1;
+  showPage();
+});
 
 // -------------------------------------------------------------- start ---
 
