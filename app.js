@@ -16,7 +16,7 @@ const yes = v => v === true || v === 'true';
 const fmt = n => Number(n).toLocaleString('ru-RU');
 const IS_LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 
-const APP_VERSION = 20; // keep equal to the number in sw.js's CACHE name
+const APP_VERSION = 21; // keep equal to the number in sw.js's CACHE name
 
 const store = {
   get(k, d) { try { const v = localStorage.getItem('polka_' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -404,6 +404,8 @@ function render() {
   if (!D) return;
   const view = VIEWS[r.name] || VIEWS.home;
   if (r.name !== 'read') leaveReader();
+  // A parent's trial test is forgotten as soon as they leave it, so he never sees it.
+  if (r.name !== 'test' && UI.test && UI.test.trial) { UI.test = null; UI.testTry = false; }
   const tabs = $('#tabs');
   tabs.hidden = TABS.indexOf(r.name) < 0;
   tabs.querySelectorAll('a').forEach(a => a.classList.toggle('on', a.dataset.tab === r.name));
@@ -1549,7 +1551,7 @@ function vtNext(T) {
 function vtRecal() { return placed() && !num(S().vt_count, 0); }
 
 VIEWS.test = async () => {
-  if (placed() && !levelDue() && !(UI.test && UI.test.phase === 'done')) {
+  if (!UI.testTry && placed() && !levelDue() && !(UI.test && UI.test.phase === 'done')) {
     return `<div class="page full">${backBtn('me')}<div class="card big stack"><b style="font-size:22px">Тест уже пройден</b><div class="muted">Следующая проверка уровня — через ${levelDueIn()} ${plural(levelDueIn(), 'день', 'дня', 'дней')}.</div></div></div>`;
   }
   let V;
@@ -1560,11 +1562,11 @@ VIEWS.test = async () => {
     while (seen.length && V.items.length - seen.length < 80) seen = seen.slice(40);
     const prior = VT_GRID.map(t => Math.exp(-0.5 * (t / 2) ** 2));
     UI.test = { phase: 'intro', V, post: prior, used: new Set(), blocked: new Set(seen), seen, log: [], n: V.size || 40,
-      recheck: placed(), recal: vtRecal(), before: langMonths() };
+      recheck: placed() && !UI.testTry, recal: vtRecal() && !UI.testTry, before: langMonths(), trial: !!UI.testTry };
   }
   const T = UI.test;
   T.V = V;
-  const head = `<header class="head">${backBtn('me')}<h1>${T.recheck ? 'Проверка уровня' : 'Тест на уровень'}</h1></header>`;
+  const head = `<header class="head">${backBtn(T.trial ? 'parent' : 'me')}<h1>${T.trial ? 'Пробный тест · не сохраняется' : T.recheck ? 'Проверка уровня' : 'Тест на уровень'}</h1></header>`;
   if (T.phase === 'intro') return `<div class="page white full">${head}
     <div class="stack" style="gap:16px;font-size:18px;line-height:1.6;max-width:640px">
       <p style="margin:0">${T.n} слов. У каждого — пять вариантов значения, выбери верный. Слова подбираются по ходу теста: если отвечаешь верно, они становятся труднее.</p>
@@ -1586,8 +1588,9 @@ VIEWS.test = async () => {
   }
   const R = T.result;
   return `<div class="page white full">${head}
-    <div class="darkcard stack" style="gap:12px"><span class="muted">Твой словарь — как у носителя языка в возрасте</span>
+    <div class="darkcard stack" style="gap:12px"><span class="muted">${T.trial ? 'Пробный тест (ничего не сохранено). Словарь — как у носителя языка в возрасте' : 'Твой словарь — как у носителя языка в возрасте'}</span>
       <div style="font-size:44px;font-weight:700">${ym(R.tested)}</div>
+      ${T.trial ? `<div class="muted">вероятно от ${ym(R.lo)} до ${ym(R.hi)}</div>` : ''}
       ${T.recheck && !T.recal ? `<div class="muted">${R.months > T.before ? 'Уровень: было ' + ym(T.before) + ' → стало ' + ym(R.months) + ' 🎉' : 'Уровень сохранён: ' + ym(R.months)} · +${LEVEL_REWARD} мин</div>`
         : T.recal ? `<div class="muted">Теперь твой уровень — ${ym(R.months)} · +${LEVEL_REWARD} мин</div>` : ''}
       <div class="muted">${R.right} из ${R.n} слов · словарный запас ≈ ${fmt(Math.round(R.size / 500) * 500)} слов · сравнение с русскими школьниками</div></div>
@@ -1619,6 +1622,7 @@ function finishTest() {
   const right = T.log.filter(x => x.ok).length;
   T.result = { months, tested, lo, hi, size, right, n: T.log.length };
   T.phase = 'done';
+  if (T.trial) { UI.testTry = false; render(); return; }
   const hist = levelHistory().concat([{ d: today(), k: 'vt', m: months, t: tested, lo, hi, s: size, n: right, of: T.log.length }]);
   const seen = T.seen.concat(T.log.map(x => x.id));
   save(T.recheck ? [ledger('level', LEVEL_REWARD, 'level:' + today())] : [], {
@@ -1718,7 +1722,7 @@ VIEWS.parent = () => {
       ${signalsHtml()}
       ${step('Уровень языка (поправить)', 'lang_months', 1, 72, 192, v => ym(v))}
       <div class="row" style="gap:10px"><span class="tiny muted">Версия приложения: ${APP_VERSION}</span><button class="btn ghost small" data-act="update">Обновить приложение</button></div>
-      <div class="row"><span class="grow small muted">Скорость чтения (ему не показывается): ${wpm()} сл/мин</span>${s.placement_date ? (levelDue() ? '' : '<button class="btn ghost small" data-act="retest">Проверить уровень сейчас</button>') : ''}</div>
+      <div class="row"><span class="grow small muted">Скорость чтения (ему не показывается): ${wpm()} сл/мин</span>${s.placement_date ? (levelDue() ? '' : '<button class="btn ghost small" data-act="retest">Проверить уровень сейчас</button>') : ''}<button class="btn ghost small" data-act="vtTry">Пройти тест самому</button></div>
     </section>
     <section class="stack" style="padding-top:18px;border-top:1px solid var(--line);gap:0"><h2 style="margin:0 0 6px">Награды</h2>
       ${step('Минут экрана за минуту чтения', 'ratio', 0.1, 0.1, 2, v => ru(v) + ' мин')}
@@ -1935,6 +1939,8 @@ const ACTS = {
   toggleLock: () => setNow({ locked: !yes(S().locked) }),
   toggleAi: () => setNow({ ai_enabled: !aiOn() }),
   // Makes the next level check due now (with a version he hasn't seen), instead of waiting 3 months.
+  // The parent tries the test: nothing is saved and his words stay unseen.
+  vtTry: () => { UI.test = null; UI.testTry = true; location.hash = '#/test'; },
   retest: () => { UI.test = null; setNow({ placement_date: addDays(today(), -LEVEL_EVERY) }, 'Проверка уровня открыта'); },
   pset: el => {
     const k = el.dataset.k, v = Math.round(Math.min(Number(el.dataset.max), Math.max(Number(el.dataset.min), num(S()[k], 0) + Number(el.dataset.d))) * 10) / 10;
