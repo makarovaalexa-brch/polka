@@ -16,7 +16,7 @@ const yes = v => v === true || v === 'true';
 const fmt = n => Number(n).toLocaleString('ru-RU');
 const IS_LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 
-const APP_VERSION = 21; // keep equal to the number in sw.js's CACHE name
+const APP_VERSION = 22; // keep equal to the number in sw.js's CACHE name
 
 const store = {
   get(k, d) { try { const v = localStorage.getItem('polka_' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -618,6 +618,7 @@ VIEWS.book = r => {
   } else if (hard) {
     action = '<div class="fact" style="margin-top:8px">Откроется, когда твой уровень дойдёт до ' + (b.age - 2) + ' лет</div>';
   }
+  if (!isCur && b.ready) action += `<a class="btn ghost" href="#/read/${id}/1?look=1" style="align-self:flex-start;margin-top:10px">Полистать</a>`;
   const ills = (b.ills || []).map(n => asset(n, 'class="ill" data-act="zoom"')).join('');
   let review = '';
   if (done) {
@@ -678,23 +679,27 @@ VIEWS.read = async r => {
   const pos = store.get('pos_' + id, null);
   const prefs = store.get('rprefs', { size: 2, font: 'golos', spacing: 'normal', theme: 'light' });
   const keepPage = UI.r && UI.r.id === id && UI.r.n === n ? UI.r.page : null;
-  UI.r = { id, n, page: keepPage != null ? keepPage : (pos && pos.n === n ? -1 : 0), frac: pos && pos.n === n ? pos.frac : 0, pages: 1, prefs, shown: Date.now(), aa: false, pop: null };
+  // ?look=1: just leafing through a book that is not his current one. Nothing counts: no page times,
+  // no words added to his list, no checks, no secret words, and his place in it is not kept.
+  const look = r.q.get('look') === '1' && id !== S().cur_book;
+  UI.r = { id, n, look, page: keepPage != null ? keepPage : (!look && pos && pos.n === n ? -1 : 0), frac: !look && pos && pos.n === n ? pos.frac : 0, pages: 1, prefs, shown: Date.now(), aa: false, pop: null };
   if (!UI.chat || UI.chat.key !== 'reader:' + id + ':' + n) UI.chat = { key: 'reader:' + id + ':' + n, msgs: [], busy: false };
   const passed = passedCh(id) >= n;
-  const secret = SECRETS[id + ':' + n];
+  const secret = look ? null : SECRETS[id + ':' + n];
   const html = ch.blocks.map(bl => {
     if (typeof bl === 'object' && bl.img) return `<figure>${asset(bl.img, 'style="width:' + (bl.w || 360) + 'px" data-act="zoom"')}</figure>`;
     // A block with line breaks is a stanza of verse: keep its lines.
     return (bl.indexOf('\n') > -1 ? '<p class="verse">' : '<p>') + esc(bl).replace(/\{(\w+)\|([^}]+)\}/g, (m, wid, text) => `<span class="hw" role="button" data-act="word" data-id="${wid}">${text}</span>`).replace(/\n/g, '<br>') + '</p>';
   }).join('');
-  const end = n < book.chapters.length || !passed
+  const end = look ? `<div class="end">${n < book.chapters.length ? `<a class="btn ghost" href="#/read/${id}/${n + 1}?look=1">Глава ${n + 1} ›</a>` : ''}<a class="btn ghost" href="#/book/${id}">К книге</a></div>`
+    : n < book.chapters.length || !passed
     ? (passed ? `<div class="end"><a class="btn" href="#/read/${id}/${n + 1}">Глава ${n + 1} ›</a></div>`
       : `<div class="end"><a class="btn" href="#/check/${id}/${n}">Проверка главы · +${chMins(b, ch.words)} мин</a></div>`)
     : `<div class="end"><a class="btn" href="#/check/${id}/final">Финальная проверка · +${finalMins(b)} мин</a></div>`;
   return `<div class="reader ${prefs.theme}" id="reader">
     <header class="r-bar">
-      <a class="r-icon" href="#/home" aria-label="На полку">${ICON.back}</a>
-      <div class="title">${esc(b.short)} · Глава ${n}${secret && !secretFound(id, n) ? ' · 🔎' : ''}</div>
+      <a class="r-icon" href="${look ? '#/book/' + id : '#/home'}" aria-label="${look ? 'К книге' : 'На полку'}">${ICON.back}</a>
+      <div class="title">${esc(b.short)} · Глава ${n}${look ? ' · просто листаю' : ''}${secret && !secretFound(id, n) ? ' · 🔎' : ''}</div>
       ${aiOn() ? `<button class="r-icon" data-act="chat" aria-label="Обсудить">${ICON.chat}</button>` : ''}
       <button class="r-icon" data-act="aa" aria-label="Текст">Aa</button>
     </header>
@@ -765,7 +770,7 @@ function showPage() {
   $('#pgBar').style.width = Math.round((R.page + 1) / R.pages * 100) + '%';
   $('#pgPrev').disabled = R.page === 0;
   $('#pgNext').disabled = R.page >= R.pages - 1;
-  store.set('pos_' + R.id, { n: R.n, frac: R.pages > 1 ? R.page / R.pages : 0 });
+  if (!R.look) store.set('pos_' + R.id, { n: R.n, frac: R.pages > 1 ? R.page / R.pages : 0 });
 }
 
 function turnPage(d) {
@@ -773,7 +778,7 @@ function turnPage(d) {
   if (!R) return;
   const page = Math.max(0, Math.min(R.pages - 1, R.page + d));
   if (page === R.page) return;
-  if (d > 0) recordPage(R);
+  if (d > 0 && !R.look) recordPage(R);
   R.page = page;
   R.shown = Date.now();
   closePanel();
@@ -878,8 +883,8 @@ function tapWord(wid) {
   const R = UI.r, book = bookNow(R.id);
   const g = book && book.glossary[wid];
   if (!g) return;
-  if (!g.g && !wordRow(R.id + ':' + wid)) save([{ t: 'Words', rows: [newWord(R.id, wid, g.base, 'tap')] }]);
-  const secret = SECRETS[R.id + ':' + R.n];
+  if (!R.look && !g.g && !wordRow(R.id + ':' + wid)) save([{ t: 'Words', rows: [newWord(R.id, wid, g.base, 'tap')] }]);
+  const secret = R.look ? null : SECRETS[R.id + ':' + R.n];
   if (secret && secret.id === wid && !secretFound(R.id, R.n)) {
     const found = store.get('secrets', {});
     found[R.id + ':' + R.n] = today();
