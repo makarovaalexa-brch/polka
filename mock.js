@@ -5,9 +5,10 @@
 
 const Mock = (() => {
   // ?demo=en: the English profile (an adult learning English), with its own demo data and drive/mum/ content.
-  const EN_DEMO = /[?&]demo=en(&|$)/.test(location.search);
+  const EN_PATH = /\/en\/(index\.html)?$/.test(location.pathname);
+  const EN_DEMO = EN_PATH || /[?&]demo=en(&|$)/.test(location.search);
   const KEY = EN_DEMO ? 'polka_mockdb_en' : 'polka_mockdb3';
-  const DRIVE = EN_DEMO ? '../drive/mum/' : '../drive/';
+  const DRIVE = (EN_PATH ? '../' : '') + (EN_DEMO ? '../drive/mum/' : '../drive/');
   const DEFAULTS = {
     ratio: 0.5, final_pct: 50, blitz_reward: 1, ai_per_day: 0, ai_enabled: true, dob: '2015-09-01',
     lang_months: 112, lang_prog: 0.4, cur_book: 'kasht', locked: true, next_book: 'kur', shortlist: 'kur,timur,deti',
@@ -24,7 +25,7 @@ const Mock = (() => {
 
   /** A few weeks of history: four short books read, «Каштанка» on chapter 3, a placement test done. */
   function seed() {
-    if (EN_DEMO) return { Settings: Object.assign({}, DEFAULTS, { lang: 'en', user_name: 'Мама', dob: '', cur_book: '', locked: false, next_book: '', shortlist: '', best_blitz: 0, lang_months: 0, lang_prog: 0 }),
+    if (EN_DEMO) return { Settings: Object.assign({}, DEFAULTS, { lang: 'en', user_name: 'Larisa', dob: '', cur_book: '', locked: false, next_book: '', shortlist: '', best_blitz: 0, lang_months: 0, lang_prog: 0 }),
       Progress: [], Checks: [], Words: [], Ledger: [], Requests: [], Pages: [], AILog: [] };
     const S = Object.assign({}, DEFAULTS, { placement_date: day(-12), vocab_bands: JSON.stringify([1, 0.96, 0.86, 0.64, 0.4, 0.15]), vocab_size: 7900, placement_count: 1,
       level_history: JSON.stringify([{ d: day(-12), m: 112, t: 112, s: 7900 }]) });

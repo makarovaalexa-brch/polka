@@ -16,11 +16,15 @@ const yes = v => v === true || v === 'true';
 const fmt = n => Number(n).toLocaleString('ru-RU');
 const IS_LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 
-const APP_VERSION = 32; // keep equal to the number in sw.js's CACHE name
+const APP_VERSION = 33; // keep equal to the number in sw.js's CACHE name
+
+// The English copy lives at /polka/en/ with its own storage, so both apps can sit on one device.
+const ROOT = /\/en\/(index\.html)?$/.test(location.pathname) ? '../' : '';
+const NS = ROOT ? 'polka_en_' : 'polka_';
 
 const store = {
-  get(k, d) { try { const v = localStorage.getItem('polka_' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
-  set(k, v) { try { localStorage.setItem('polka_' + k, JSON.stringify(v)); } catch (e) { /* storage full or blocked */ } },
+  get(k, d) { try { const v = localStorage.getItem(NS + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(NS + k, JSON.stringify(v)); } catch (e) { /* storage full or blocked */ } },
 };
 
 const pad = n => String(n).padStart(2, '0');
@@ -240,7 +244,7 @@ async function load() {
     if (resetAt && store.get('reset_at', '') !== resetAt) {
       ['stats', 'secrets', 'tries'].forEach(k => store.set(k, {}));
       store.set('pagebuf', []);
-      try { Object.keys(localStorage).filter(k => k.indexOf('polka_pos_') === 0).forEach(k => localStorage.removeItem(k)); } catch (e) { /* ignore */ }
+      try { Object.keys(localStorage).filter(k => k.indexOf(NS + 'pos_') === 0).forEach(k => localStorage.removeItem(k)); } catch (e) { /* ignore */ }
       OUTBOX.length = 0; store.set('outbox', OUTBOX);
       UI.check = {}; UI.test = null;
       store.set('reset_at', resetAt);
@@ -425,7 +429,7 @@ function render() {
   if (r.name === 'connect') return connectFromLink(r.q);
   if (!connected() && !IS_LOCAL) { $('#tabs').hidden = true; $('#view').innerHTML = VIEWS.lock(); return; }
   if (!D) return;
-  if (EN() && !UI.enOk) {
+  if (EN() && yes(S().en_pin) && !UI.enOk) {
     $('#tabs').hidden = true;
     if (String(UI.pinMode).indexOf('en') !== 0) { UI.pin = ''; UI.pinMode = S().pin_set ? 'en-enter' : 'en-new'; }
     drawPin();
@@ -2001,7 +2005,7 @@ function setNow(set, okMsg) {
 
 function connectFromLink(q) {
   const api = q.get('api'), key = q.get('key');
-  if (api && key) { store.set('cfg', { api, key }); localStorage.removeItem('polka_cache'); D = null; toast('Подключено'); }
+  if (api && key) { store.set('cfg', { api, key }); localStorage.removeItem(NS + 'cache'); D = null; toast('Подключено'); }
   history.replaceState(null, '', location.pathname + '#/home');
   load();
 }
@@ -2167,7 +2171,7 @@ const ACTS = {
     const m = api.match(/[?&]api=([^&#\s]+).*[?&]key=([^&#\s]+)/);
     if (m) { api = decodeURIComponent(m[1]); key = decodeURIComponent(m[2]); }
     store.set('cfg', { api, key });
-    localStorage.removeItem('polka_cache');
+    localStorage.removeItem(NS + 'cache');
     D = null; UI.parentOk = false;
     toast(api ? 'Подключаю…' : 'Отключено');
     location.hash = '#/home';
@@ -2205,7 +2209,7 @@ document.addEventListener('input', e => {
 
 // -------------------------------------------------------------- start ---
 
-if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js');
+if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register(ROOT + 'sw.js', { scope: ROOT || './' });
 
 /* Updates: iPad home-screen apps are rarely really closed, so the app checks for a newer version itself
    whenever it is opened or comes back to the front. On the home screen it reloads at once; elsewhere
@@ -2218,7 +2222,7 @@ async function hardReload() {
 async function checkUpdate() {
   if (IS_LOCAL || location.protocol !== 'https:') return;
   try {
-    const txt = await (await fetch('sw.js?t=' + Date.now(), { cache: 'no-store' })).text();
+    const txt = await (await fetch(ROOT + 'sw.js?t=' + Date.now(), { cache: 'no-store' })).text();
     const v = Number((txt.match(/polka-v(\d+)/) || [])[1] || 0);
     if (v <= APP_VERSION) return;
     const r = route().name;
@@ -2235,7 +2239,7 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') UI.hiddenAt = Date.now();
   else {
     // The English profile locks again after 10 minutes away.
-    if (D && EN() && UI.enOk && UI.hiddenAt && Date.now() - UI.hiddenAt > 10 * 60e3) { UI.enOk = false; render(); }
+    if (D && EN() && yes(S().en_pin) && UI.enOk && UI.hiddenAt && Date.now() - UI.hiddenAt > 10 * 60e3) { UI.enOk = false; render(); }
     checkUpdate();
   }
 });
