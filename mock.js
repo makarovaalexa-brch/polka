@@ -5,10 +5,10 @@
 
 const Mock = (() => {
   // ?demo=en: the English profile (an adult learning English), with its own demo data and drive/mum/ content.
-  const EN_PATH = /\/en\/(index\.html)?$/.test(location.pathname);
+  const EN_PATH = /^\/polka-en(\/|$)/.test(location.pathname);
   const EN_DEMO = EN_PATH || /[?&]demo=en(&|$)/.test(location.search);
   const KEY = EN_DEMO ? 'polka_mockdb_en' : 'polka_mockdb3';
-  const DRIVE = (EN_PATH ? '../' : '') + (EN_DEMO ? '../drive/mum/' : '../drive/');
+  const DRIVE = EN_DEMO ? '../drive/mum/' : '../drive/';
   const DEFAULTS = {
     ratio: 0.5, final_pct: 50, blitz_reward: 1, ai_per_day: 0, ai_enabled: true, dob: '2015-09-01',
     lang_months: 112, lang_prog: 0.4, cur_book: 'kasht', locked: true, next_book: 'kur', shortlist: 'kur,timur,deti',

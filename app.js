@@ -16,11 +16,13 @@ const yes = v => v === true || v === 'true';
 const fmt = n => Number(n).toLocaleString('ru-RU');
 const IS_LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 
-const APP_VERSION = 33; // keep equal to the number in sw.js's CACHE name
+const APP_VERSION = 34; // keep equal to the number in sw.js's CACHE name
 
-// The English copy lives at /polka/en/ with its own storage, so both apps can sit on one device.
-const ROOT = /\/en\/(index\.html)?$/.test(location.pathname) ? '../' : '';
-const NS = ROOT ? 'polka_en_' : 'polka_';
+// The English copy lives at /polka-en/ (outside this app's scope, so phones keep them as two apps)
+// and loads its code from /polka/. It keeps its own storage keys.
+const EN_HOME = /^\/polka-en(\/|$)/.test(location.pathname);
+const ROOT = EN_HOME ? '/polka/' : '';
+const NS = EN_HOME ? 'polka_en_' : 'polka_';
 
 const store = {
   get(k, d) { try { const v = localStorage.getItem(NS + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -2209,7 +2211,7 @@ document.addEventListener('input', e => {
 
 // -------------------------------------------------------------- start ---
 
-if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register(ROOT + 'sw.js', { scope: ROOT || './' });
+if ('serviceWorker' in navigator && location.protocol === 'https:' && !EN_HOME) navigator.serviceWorker.register('sw.js');
 
 /* Updates: iPad home-screen apps are rarely really closed, so the app checks for a newer version itself
    whenever it is opened or comes back to the front. On the home screen it reloads at once; elsewhere
