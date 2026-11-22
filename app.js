@@ -16,7 +16,7 @@ const yes = v => v === true || v === 'true';
 const fmt = n => Number(n).toLocaleString('ru-RU');
 const IS_LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 
-const APP_VERSION = 31; // keep equal to the number in sw.js's CACHE name
+const APP_VERSION = 32; // keep equal to the number in sw.js's CACHE name
 
 const store = {
   get(k, d) { try { const v = localStorage.getItem('polka_' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -102,7 +102,7 @@ async function api(action, payload, timeoutMs) {
 
 /** Runs an api call, showing errors as a toast. Returns undefined on failure. */
 async function run(action, payload) {
-  try { return await api(action, payload); } catch (e) { toast(/fetch|network|load/i.test(e.message) ? 'Нет связи. Попробуй ещё раз, когда будет интернет.' : e.message, true); }
+  try { return await api(action, payload); } catch (e) { toast(/fetch|network|load/i.test(e.message) ? (D && EN() ? 'No connection. Please try again when you are online.' : 'Нет связи. Попробуй ещё раз, когда будет интернет.') : (D && EN() && /Wrong PIN/.test(e.message) ? 'Wrong PIN' : e.message), true); }
 }
 
 let D = store.get('cache', null); // everything from bootstrap
@@ -425,6 +425,12 @@ function render() {
   if (r.name === 'connect') return connectFromLink(r.q);
   if (!connected() && !IS_LOCAL) { $('#tabs').hidden = true; $('#view').innerHTML = VIEWS.lock(); return; }
   if (!D) return;
+  if (EN() && !UI.enOk) {
+    $('#tabs').hidden = true;
+    if (String(UI.pinMode).indexOf('en') !== 0) { UI.pin = ''; UI.pinMode = S().pin_set ? 'en-enter' : 'en-new'; }
+    drawPin();
+    return;
+  }
   const view = (EN() && (EN_VIEWS[r.name] || EN_VIEWS.home)) || VIEWS[r.name] || VIEWS.home;
   if (r.name !== 'read') leaveReader();
   // A parent's trial test is forgotten as soon as they leave it, so he never sees it.
@@ -1686,70 +1692,76 @@ function finishTest() {
 // ------------------------------------------------ English profile (lang 'en') ---
 
 /* A second kind of user: an adult Russian speaker learning English (settings.lang = 'en', her own
-   back end and Drive folder). The interface stays Russian; for now she has a home screen, her level
-   and the vocabulary test. Her screens replace his where EN_VIEWS has one; nothing of his changes.
+   back end, Drive folder and invitation link). Her screens are in English and she unlocks the app
+   with her own PIN. For now: home, her level and the vocabulary test. Her screens replace his where
+   EN_VIEWS has one; nothing of his changes.
 
    Test: Nation's Vocabulary Size Test, bilingual Russian version (Victoria University of Wellington,
-   free to use; drive/en/vocab_test_en.json). Its words come from frequency bands of 1000 word families.
-   She sees 5 words per band from the commonest up and stops after two weak bands in a row
-   (1 or 0 right of 5). Size = Σ share right × 1000 over the bands shown. Level: CEFR from vocabulary
-   size, after Milton & Alexiou (2009) — approximate, as such tables are. */
+   free to use; drive/mum/vocab_test_en.json): an English word in a short sentence, four meanings in
+   Russian. Words come from 14 frequency bands of 1000 word families, 10 per band. She sees 5 words
+   per band from the commonest up and stops after two weak bands in a row (0 or 1 right of 5); each
+   retest takes the next 5 of each band. Size = sum of share right x 1000 over the bands shown. Level:
+   CEFR from vocabulary size, after Milton & Alexiou (2009) - approximate, as such tables are. */
 const EN = () => S().lang === 'en';
 const EN_PER_BAND = 5;
-const CEFR = [[0, 'A1', 'начальный'], [1500, 'A2', 'элементарный'], [2500, 'B1', 'средний'], [3250, 'B2', 'выше среднего'], [3750, 'C1', 'продвинутый'], [4500, 'C2', 'свободный']];
+const CEFR = [[0, 'A1', 'Beginner'], [1500, 'A2', 'Elementary'], [2500, 'B1', 'Intermediate'], [3250, 'B2', 'Upper intermediate'], [3750, 'C1', 'Advanced'], [4500, 'C2', 'Proficient']];
 function cefrOf(size) { let c = CEFR[0]; CEFR.forEach(x => { if (size >= x[0]) c = x; }); return c; }
 const CEFR_TEXT = {
-  A1: 'Знакомые слова и самые простые фразы: представиться, спросить дорогу, понять ценник.',
-  A2: 'Простые разговоры о себе, семье, покупках. Короткие простые тексты понятны со словарём.',
-  B1: 'Разговор на знакомые темы, простые книги и письма без постоянного словаря.',
-  B2: 'Свободный разговор с носителем, новости, адаптированные и многие обычные книги.',
-  C1: 'Почти любые тексты и фильмы, тонкости и юмор.',
-  C2: 'Как у образованного носителя языка.',
+  A1: 'Familiar words and the simplest phrases: introducing yourself, asking the way, reading a price tag.',
+  A2: 'Simple conversations about yourself, family and shopping. Short, simple texts with a dictionary.',
+  B1: 'Conversations on familiar topics; simple books and letters without a dictionary at every line.',
+  B2: 'Easy conversation with native speakers, the news, graded readers and many ordinary books.',
+  C1: 'Almost any text or film, including nuance and humour.',
+  C2: 'Like an educated native speaker.',
 };
 const enName = () => String(S().user_name || '').trim();
+const enNum = n => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+const enDays = n => n + ' ' + (n === 1 ? 'day' : 'days');
+const enDate = iso => { const d = parseIso(iso); return d ? d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : iso; };
 const EN_VIEWS = {};
 
+function enLevelCard(size, extra) {
+  const c = cefrOf(size);
+  return `<section class="darkcard stack" style="gap:12px"><span class="muted">Your English level</span>
+    <div class="row" style="gap:14px;align-items:baseline"><div style="font-size:54px;font-weight:700;line-height:1">${c[1]}</div><div style="font-size:20px">${c[2]}</div></div>
+    <div class="muted">Vocabulary ≈ ${enNum(Math.round(size / 100) * 100)} words${extra || ''}</div>
+    <div style="line-height:1.5">${esc(CEFR_TEXT[c[1]])}</div>`;
+}
 EN_VIEWS.home = () => {
-  const s = S(), size = num(s.vocab_size, 0), c = s.cefr ? cefrOf(size) : null;
-  const level = placed() && c
-    ? `<section class="darkcard stack" style="gap:12px"><span class="muted">Ваш уровень английского</span>
-        <div class="row" style="gap:14px;align-items:baseline"><div style="font-size:54px;font-weight:700;line-height:1">${c[1]}</div><div style="font-size:20px">${c[2]}</div></div>
-        <div class="muted">Словарный запас ≈ ${fmt(Math.round(size / 100) * 100)} слов</div>
-        <div style="line-height:1.5">${esc(CEFR_TEXT[c[1]])}</div>
-        ${levelDueIn() <= 0 ? `<a class="btn amber" href="#/test" style="align-self:flex-start">Проверить уровень снова</a>`
-          : `<div class="small muted">Следующая проверка — через ${levelDueIn()} ${plural(levelDueIn(), 'день', 'дня', 'дней')}</div>`}
-        ${levelHistory().length > 1 ? `<div class="stack" style="gap:4px">${levelHistory().slice().reverse().map(h => `<div class="small muted">${esc(h.d)} · ${esc(h.c || '')} · ≈ ${fmt(Math.round(num(h.s, 0) / 100) * 100)} слов</div>`).join('')}</div>` : ''}</section>`
-    : `<a class="card big row" href="#/test" style="gap:16px"><span style="font-size:34px">🧭</span><div class="grow"><b style="font-size:20px">Тест на уровень · 10–15 минут</b>
-        <div class="muted" style="margin-top:4px">Сколько английских слов вы знаете и какой это уровень</div></div><span class="pill">Начать ›</span></a>`;
-  return `<div class="page">
-    ${demoBanner()}
-    <header class="head"><h1>Книжная полка${enName() ? ' · ' + esc(enName()) : ''}</h1><button class="btn ghost small" data-act="bug">Сообщить об ошибке</button></header>
+  const s = S(), size = num(s.vocab_size, 0);
+  const level = placed() && s.cefr
+    ? enLevelCard(size) + `
+        ${levelDueIn() <= 0 ? `<a class="btn amber" href="#/test" style="align-self:flex-start">Test my level again</a>`
+          : `<div class="small muted">Next level check in ${enDays(levelDueIn())}</div>`}
+        ${levelHistory().length > 1 ? `<div class="stack" style="gap:4px">${levelHistory().slice().reverse().map(h => `<div class="small muted">${esc(enDate(h.d))} · ${esc(h.c || '')} · ≈ ${enNum(Math.round(num(h.s, 0) / 100) * 100)} words</div>`).join('')}</div>` : ''}</section>`
+    : `<a class="card big row" href="#/test" style="gap:16px"><span style="font-size:34px">🧭</span><div class="grow"><b style="font-size:20px">Level test · 10–15 minutes</b>
+        <div class="muted" style="margin-top:4px">How many English words you know, and what level that is</div></div><span class="pill">Start ›</span></a>`;
+  return `<div class="page" lang="en">
+    <header class="head"><h1>${enName() ? 'Hello, ' + esc(enName()) : 'Bookshelf'}</h1><button class="btn ghost small" data-act="bug">Report a problem</button></header>
     ${level}
-    <section class="card stack" style="gap:8px"><b style="font-size:19px">Тексты на английском</b>
-      <div class="muted">Первые короткие тексты появятся здесь, когда будет известен уровень: слова подберём по нему, трудные можно будет нажать и увидеть перевод.</div></section>
+    <section class="card stack" style="gap:8px"><b style="font-size:19px">English texts</b>
+      <div class="muted">Your first short texts will appear here once we know your level. They will be chosen to match it, and you can tap any hard word to see its meaning.</div></section>
   </div>`;
 };
-EN_VIEWS.me = EN_VIEWS.home;
-['library', 'quests', 'collection', 'blitz', 'shelf', 'parent'].forEach(k => { EN_VIEWS[k] = EN_VIEWS.home; });
+['me', 'library', 'quests', 'collection', 'blitz', 'shelf', 'parent'].forEach(k => { EN_VIEWS[k] = EN_VIEWS.home; });
 
 EN_VIEWS.test = async () => {
-  if (placed() && levelDueIn() > 0 && !(UI.test && UI.test.phase === 'done')) { location.hash = '#/home'; return null; }
+  if (placed() && levelDueIn() > 0 && !(UI.test && UI.test.en && UI.test.phase === 'done')) { location.hash = '#/home'; return null; }
   let V;
-  try { V = await content('vocab_test_en.json'); } catch (e) { toast('Не получилось загрузить тест', true); location.hash = '#/home'; return null; }
+  try { V = await content('vocab_test_en.json'); } catch (e) { toast('Could not load the test. Please try again.', true); location.hash = '#/home'; return null; }
   if (!UI.test || !UI.test.en) {
     const round = num(S().vt_count, 0);
-    // Each new test takes other words of the same bands where it can.
     UI.test = { en: true, phase: 'intro', V, band: 0, inBand: [], weak: 0, log: [], bands: [], q: null,
       picks: V.bands.map((b, k) => { const o = seeded(b.items.map((_, i) => i), 'en' + k); return Array.from({ length: Math.min(EN_PER_BAND, o.length) }, (_, i) => o[(round * EN_PER_BAND + i) % o.length]); }) };
   }
   const T = UI.test;
-  const head = `<header class="head">${backBtn('home')}<h1>Тест на уровень</h1></header>`;
-  if (T.phase === 'intro') return `<div class="page white full">${head}
+  const head = `<header class="head">${backBtn('home')}<h1>Level test</h1></header>`;
+  if (T.phase === 'intro') return `<div class="page white full" lang="en">${head}
     <div class="stack" style="gap:16px;font-size:18px;line-height:1.6;max-width:640px">
-      <p style="margin:0">Английское слово и короткий пример с ним. Выберите, что оно значит, из четырёх вариантов.</p>
-      <p style="margin:0">Слова идут от самых частых к более редким, по пять на ступень. Когда слова станут совсем незнакомыми, тест закончится сам.</p>
-      <p style="margin:0">Если не знаете слова, нажмите «Не знаю» — не угадывайте, иначе результат будет неточным.</p>
-      <button class="btn" data-act="testGo" style="align-self:flex-start">Начать</button></div></div>`;
+      <p style="margin:0">You will see an English word in a short sentence. Choose its meaning from four options in Russian.</p>
+      <p style="margin:0">The words go from the most common to rarer ones, five at each step. When they become unfamiliar, the test ends by itself.</p>
+      <p style="margin:0">If you don't know a word, tap “I don't know” — please don't guess, or the result will be less accurate.</p>
+      <button class="btn" data-act="testGo" style="align-self:flex-start">Start</button></div></div>`;
   if (T.phase === 'run') {
     if (!T.q) {
       const B = V.bands[T.band], it = B && B.items[T.picks[T.band][T.inBand.length]];
@@ -1758,21 +1770,18 @@ EN_VIEWS.test = async () => {
       T.q = { id: it.id, w: it.w, ex: it.ex, opts: order.map(k => it.o[k]), a: order.indexOf(it.a) };
     }
     const q = T.q;
-    return `<div class="page white full">${head}
-      <div class="small muted">Ступень ${T.band + 1} · слово ${T.inBand.length + 1} из ${EN_PER_BAND}</div>
-      <div style="text-align:center;padding:48px 0 32px"><div style="font-size:46px;font-weight:700" lang="en">${esc(q.w)}</div>
-        ${q.ex ? `<div style="font-size:20px;color:var(--ink2);margin-top:12px" lang="en">${esc(q.ex)}</div>` : ''}</div>
+    return `<div class="page white full" lang="en">${head}
+      <div class="small muted">Step ${T.band + 1} · word ${T.inBand.length + 1} of ${EN_PER_BAND}</div>
+      <div style="text-align:center;padding:48px 0 32px"><div style="font-size:46px;font-weight:700">${esc(q.w)}</div>
+        ${q.ex ? `<div style="font-size:20px;color:var(--ink2);margin-top:12px">${esc(q.ex)}</div>` : ''}</div>
       <div class="stack" style="gap:10px;max-width:560px;margin:0 auto;width:100%">
-        ${q.opts.map((o, j) => `<button class="opt" style="min-height:60px;font-size:19px" data-act="testPick" data-j="${j}">${esc(o)}</button>`).join('')}
-        <button class="btn ghost" style="min-height:56px;font-size:18px;margin-top:8px" data-act="testPick" data-j="-1">Не знаю</button></div></div>`;
+        ${q.opts.map((o, j) => `<button class="opt" lang="ru" style="min-height:60px;font-size:19px" data-act="testPick" data-j="${j}">${esc(o)}</button>`).join('')}
+        <button class="btn ghost" style="min-height:56px;font-size:18px;margin-top:8px" data-act="testPick" data-j="-1">I don't know</button></div></div>`;
   }
-  const R = T.result, c = cefrOf(R.size);
-  return `<div class="page white full">${head}
-    <div class="darkcard stack" style="gap:12px"><span class="muted">Ваш уровень английского</span>
-      <div class="row" style="gap:14px;align-items:baseline"><div style="font-size:54px;font-weight:700;line-height:1">${c[1]}</div><div style="font-size:20px">${c[2]}</div></div>
-      <div class="muted">Словарный запас ≈ ${fmt(Math.round(R.size / 100) * 100)} слов · ${R.right} верных из ${R.n}</div>
-      <div style="line-height:1.5">${esc(CEFR_TEXT[c[1]])}</div></div>
-    <a class="btn" href="#/home" style="align-self:flex-start">Готово</a></div>`;
+  const R = T.result;
+  return `<div class="page white full" lang="en">${head}
+    ${enLevelCard(R.size, ' · ' + R.right + ' right out of ' + R.n)}</section>
+    <a class="btn" href="#/home" style="align-self:flex-start">Done</a></div>`;
 };
 function enPick(j) {
   const T = UI.test, q = T.q;
@@ -1934,6 +1943,15 @@ function openPin(mode) {
   drawPin();
 }
 function drawPin() {
+  if (String(UI.pinMode).indexOf('en') === 0) {
+    $('#view').innerHTML = `<div class="page full" style="max-width:420px;padding-top:90px">
+      <div style="font-size:30px;font-weight:700;text-align:center">${UI.pinMode === 'en-new' ? 'Choose a 4-digit PIN' : 'Enter your PIN'}</div>
+      ${UI.pinMode === 'en-new' ? '<div class="muted" style="text-align:center">You will enter it each time you open the app, so your results stay private.</div>' : ''}
+      <div class="pindots">${[0, 1, 2, 3].map(i => '<i class="' + (i < UI.pin.length ? 'on' : '') + '"></i>').join('')}</div>
+      <div class="pinpad">${[1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => `<button data-act="pinKey" data-k="${n}">${n}</button>`).join('')}
+        <span></span><button data-act="pinKey" data-k="0">0</button><button data-act="pinKey" data-k="del" aria-label="Delete">⌫</button></div></div>`;
+    return;
+  }
   const title = { enter: 'PIN для родителей', new: 'Придумайте PIN (4 цифры)', change: 'Новый PIN (4 цифры)' }[UI.pinMode];
   openSheet(`<h3 style="text-align:center">${title}</h3>
     <div class="pindots">${[0, 1, 2, 3].map(i => '<i class="' + (i < UI.pin.length ? 'on' : '') + '"></i>').join('')}</div>
@@ -1942,6 +1960,12 @@ function drawPin() {
 }
 async function pinDone() {
   const pin = UI.pin;
+  if (UI.pinMode === 'en-enter' || UI.pinMode === 'en-new') {
+    const res = UI.pinMode === 'en-enter' ? await run('parent', { op: 'check', pin }) : await run('parent', { op: 'pinSet', pin: '', newPin: pin });
+    if (res && (res.ok || UI.pinMode === 'en-new')) { if (UI.pinMode === 'en-new') { D = res; saveCache(); } UI.enOk = true; UI.pinMode = ''; render(); }
+    else { UI.pin = ''; drawPin(); }
+    return;
+  }
   if (UI.pinMode === 'enter') {
     const res = await run('parent', { op: 'check', pin });
     if (res && res.ok) { UI.parentOk = true; UI.parentPin = pin; closeSheet(); location.hash = '#/parent'; render(); }
@@ -2037,19 +2061,20 @@ const ACTS = {
   bug: () => {
     const R = UI.r;
     UI.bugWhere = R ? 'читалка: ' + R.id + ', глава ' + R.n + ', стр. ' + (R.page + 1) + (R.look ? ' (листаю)' : '') : '#' + (location.hash.replace(/^#\/?/, '') || 'home');
-    openSheet(`<h3>Сообщить об ошибке</h3>
-      <div class="small muted">Что не так? Например: опечатка, неверный ответ в проверке, что-то не нажимается.</div>
+    const en = EN();
+    openSheet(`<h3>${en ? 'Report a problem' : 'Сообщить об ошибке'}</h3>
+      <div class="small muted">${en ? 'What went wrong? For example: a typo, a wrong answer in the test, a button that does not work.' : 'Что не так? Например: опечатка, неверный ответ в проверке, что-то не нажимается.'}</div>
       <textarea id="bugText" rows="5" style="width:100%;font:inherit;font-size:17px;padding:10px;border-radius:10px;border:1px solid var(--line)"></textarea>
-      <div class="tiny muted">Место: ${esc(UI.bugWhere)}</div>
-      <div class="row" style="gap:10px;justify-content:flex-end"><button class="btn ghost" data-act="closeSheet">Отмена</button><button class="btn" data-act="bugSend">Отправить</button></div>`);
+      <div class="tiny muted">${en ? 'Where' : 'Место'}: ${esc(UI.bugWhere)}</div>
+      <div class="row" style="gap:10px;justify-content:flex-end"><button class="btn ghost" data-act="closeSheet">${en ? 'Cancel' : 'Отмена'}</button><button class="btn" data-act="bugSend">${en ? 'Send' : 'Отправить'}</button></div>`);
     setTimeout(() => { const t = $('#bugText'); if (t) t.focus(); }, 50);
   },
   bugSend: () => {
     const t = $('#bugText'), text = t ? t.value.trim() : '';
-    if (!text) return toast('Напиши, что случилось', true);
+    if (!text) return toast(EN() ? 'Please describe what happened' : 'Напиши, что случилось', true);
     save([{ t: 'Bugs', rows: [{ id: rid(), date: today(), where: UI.bugWhere || '', text: text.slice(0, 2000), app: 'v' + APP_VERSION, device: navigator.userAgent.slice(0, 200) }] }]);
     closeSheet();
-    toast('Спасибо! Отправлено');
+    toast(EN() ? 'Thank you! Sent.' : 'Спасибо! Отправлено');
   },
   redeem: () => {
     const bal = balance();
@@ -2200,13 +2225,20 @@ async function checkUpdate() {
     if (r === 'home' || r === 'library' || r === 'collection' || r === 'quests') return hardReload();
     if (!document.getElementById('updBar')) {
       const bar = document.createElement('button');
-      bar.id = 'updBar'; bar.className = 'upd-bar'; bar.textContent = 'Есть обновление — обновить';
+      bar.id = 'updBar'; bar.className = 'upd-bar'; bar.textContent = D && EN() ? 'Update available — tap to update' : 'Есть обновление — обновить';
       bar.onclick = hardReload;
       document.body.appendChild(bar);
     }
   } catch (e) { /* offline: try next time */ }
 }
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkUpdate(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') UI.hiddenAt = Date.now();
+  else {
+    // The English profile locks again after 10 minutes away.
+    if (D && EN() && UI.enOk && UI.hiddenAt && Date.now() - UI.hiddenAt > 10 * 60e3) { UI.enOk = false; render(); }
+    checkUpdate();
+  }
+});
 setTimeout(checkUpdate, 1500);
 if (D && Object.keys(BOOKS).length) render();
 load();
