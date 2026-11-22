@@ -16,7 +16,7 @@ const yes = v => v === true || v === 'true';
 const fmt = n => Number(n).toLocaleString('ru-RU');
 const IS_LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 
-const APP_VERSION = 36; // keep equal to the number in sw.js's CACHE name
+const APP_VERSION = 37; // keep equal to the number in sw.js's CACHE name
 
 // The English copy lives at /polka-en/ (outside this app's scope, so phones keep them as two apps)
 // and loads its code from /polka/. It keeps its own storage keys.
@@ -1884,14 +1884,12 @@ function signalsHtml() {
 // ------------------------------------------------------------- manga ---
 /* Manga as prizes: whole volumes are opened with earned coins, in order within a series, and stay open.
    An opened volume is a Ledger row (kind 'manga', ref '<volume id>', minus the price; 0 when a parent opens it),
-   so no extra table is needed. Price: manga_vol_price coins, or when that is 0, what about an hour of
-   reading pays (60 min x ratio, plus the whole-book bonus). Volumes are prepared on the computer by
+   so no extra table is needed. Price: manga_vol_price coins (50 by default, about what Kashtanka paid him). Volumes are prepared on the computer by
    private/prep/prep_manga.py (pages in Drive's «Манга», index in manga.json). */
 let MANGA = null;
 function mangaOn() { return yes(S().manga_on) && !EN(); }
 async function loadManga() { MANGA = await content('manga.json'); return MANGA; }
-function mangaAuto() { return Math.max(5, Math.round(60 * num(S().ratio, 0.5) * (1 + num(S().final_pct, 50) / 100) / 5) * 5); }
-function mangaPrice() { const p = num(S().manga_vol_price, 0); return p > 0 ? p : mangaAuto(); }
+function mangaPrice() { const p = num(S().manga_vol_price, 50); return p > 0 ? p : 50; }
 function mangaUnlocked(vid) { return (D.ledger || []).some(l => l.kind === 'manga' && l.ref === vid); }
 function mangaOpened() { return (D.ledger || []).filter(l => l.kind === 'manga').length; }
 // Chapters of a series, in order; key (volume:chapter) is for reading position and "read" marks.
@@ -1925,7 +1923,7 @@ VIEWS.manga = async () => {
     ${s.volumes.map(v => vol(s, v)).join('')}</section>`).join('');
   return `<div class="page full"><header class="head">${backBtn('home')}<h1>Манга</h1>
       <div class="coin">${ICON.coin}<b>${balance()}</b><span class="muted">${coinWord(balance())}</span></div></header>
-    <div class="small muted">Том открывается за ${coins(price)} — это примерно час чтения — и остаётся твоим. Тома идут по порядку.</div>
+    <div class="small muted">Том открывается за ${coins(price)} и остаётся твоим. Тома идут по порядку.</div>
     ${series || '<div class="empty">Манга скоро появится.</div>'}</div>`;
 };
 
@@ -2068,7 +2066,7 @@ VIEWS.parent = () => {
       <div class="grid4" style="grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin-top:14px">${[[-2, 'на 2+ года проще'], [-1, 'на год проще'], [0, 'его уровень'], [1, 'на год сложнее'], [2, 'на 2 года сложнее (предел)']].map(([d, l]) => `<div class="fact" style="text-align:center"><b>×${ru(MULT[String(d)])}</b><span class="tiny muted">${l}</span></div>`).join('')}</div>
       <div class="stepper"><span class="grow">Обмен на экранное время</span><button class="btn small ${screenOn() ? 'ghost' : ''}" data-act="toggleScreen" style="width:auto">${screenOn() ? 'Выключить' : 'Включить'}</button></div>
       <div class="stepper"><span class="grow">Манга за монеты</span><button class="btn small ${yes(s.manga_on) ? 'ghost' : ''}" data-act="toggleManga" style="width:auto">${yes(s.manga_on) ? 'Выключить' : 'Включить'}</button></div>
-      ${yes(s.manga_on) ? step('Цена тома манги', 'manga_vol_price', 5, 0, 300, v => v ? coins(v) : 'час чтения ≈ ' + mangaAuto()) + mangaParentHtml() : ''}
+      ${yes(s.manga_on) ? step('Цена тома манги', 'manga_vol_price', 5, 5, 300, v => coins(v)) + mangaParentHtml() : ''}
       <div class="row" style="margin-top:14px"><span class="grow">Поправить баланс</span><button class="btn ghost small" data-act="adjust" data-m="-5">−5</button><button class="btn ghost small" data-act="adjust" data-m="5">+5</button></div>
     </section>
     <section class="stack" style="padding-top:18px;border-top:1px solid var(--line);gap:0"><h2 style="margin:0 0 6px">Вопросы к ИИ</h2>

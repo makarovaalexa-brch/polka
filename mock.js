@@ -12,7 +12,7 @@ const Mock = (() => {
   const DEFAULTS = {
     ratio: 0.5, final_pct: 50, blitz_reward: 1, ai_per_day: 0, ai_enabled: true, dob: '2015-09-01',
     lang_months: 112, lang_prog: 0.4, cur_book: 'kasht', locked: true, next_book: 'kur', shortlist: 'kur,timur,deti',
-    manga_on: true, manga_vol_price: 0, screen_on: false,
+    manga_on: true, manga_vol_price: 50, screen_on: false,
     best_blitz: 9, wpm: 150, wpm_updated: '', pin_hash: 'demo:1234', gemini_model: 'auto', ai_used_date: '', ai_used: 0,
     placement_date: '', vocab_bands: '', vocab_size: 0, bingo_card: 1, placement_count: 0, level_history: '', vt_count: 0, vt_seen: '', lang: 'ru', user_name: '', cefr: '',
   };
