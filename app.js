@@ -2390,7 +2390,7 @@ function enStoriesHtml() {
       const p = progressOf(s.id), done = p && p.status === 'done';
       return `<a class="card row" href="#/story/${esc(s.id)}" style="gap:16px;align-items:flex-start"><div class="grow stack" style="gap:4px">
         <span class="small muted">Story ${k + 1} · ${EN_LEVEL[s.level] || esc(s.level)} · about ${Math.max(5, Math.round(s.words / 90))} minutes</span>
-        <b style="font-size:20px">${esc(s.title)}</b><span class="muted">${esc(s.blurb)}</span></div>
+        <b style="font-size:20px">${esc(s.title)}</b>${s.author ? `<span class="small muted">by ${esc(s.author)}</span>` : ''}<span class="muted">${esc(s.blurb)}</span></div>
         <span class="pill ${done ? 'green' : ''}">${done ? '✓ Read' : p ? 'Continue ›' : 'Read ›'}</span></a>`;
     }).join('')}</section>`;
 }
@@ -2413,7 +2413,7 @@ EN_VIEWS.story = async r => {
       return m ? `<span class="ew" data-act="enWord" data-i="${m[1]}">${esc(m[2])}</span>` : esc(part);
     }).join('') + '</p>').join('');
     return `<div class="page white full" lang="en"><header class="head">${back}<h1 style="font-size:24px">${esc(s.title)}</h1></header>
-      <article class="estory">${paras}</article>
+      ${s.author ? `<div class="muted" style="margin-top:-8px">by ${esc(s.author)}</div>` : ''}<article class="estory">${paras}</article>
       <button class="btn" data-act="enDone" style="align-self:flex-start;margin:8px 0 24px">I've finished reading</button>
       <div class="ewpop" id="ewpop" hidden></div></div>`;
   }
