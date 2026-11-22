@@ -16,7 +16,7 @@ const yes = v => v === true || v === 'true';
 const fmt = n => Number(n).toLocaleString('ru-RU');
 const IS_LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 
-const APP_VERSION = 37; // keep equal to the number in sw.js's CACHE name
+const APP_VERSION = 38; // keep equal to the number in sw.js's CACHE name
 
 // The English copy lives at /polka-en/ (outside this app's scope, so phones keep them as two apps)
 // and loads its code from /polka/. It keeps its own storage keys.
@@ -1759,8 +1759,7 @@ EN_VIEWS.home = () => {
   return `<div class="page" lang="en">
     <header class="head"><h1>${enName() ? 'Hello, ' + esc(enName()) : 'Bookshelf'}</h1><button class="btn ghost small" data-act="bug">Report a problem</button></header>
     ${level}
-    <section class="card stack" style="gap:8px"><b style="font-size:19px">English texts</b>
-      <div class="muted">Your first short texts will appear here once we know your level. They will be chosen to match it, and you can tap any hard word to see its meaning.</div></section>
+    ${enStoriesHtml()}
   </div>`;
 };
 ['me', 'library', 'quests', 'collection', 'blitz', 'shelf', 'parent'].forEach(k => { EN_VIEWS[k] = EN_VIEWS.home; });
@@ -2369,6 +2368,120 @@ const ACTS = {
     try { await navigator.clipboard.writeText(link); toast('Ссылка скопирована'); } catch (e) { prompt('Ссылка:', link); }
   },
 };
+
+// English stories: short texts written for her level (drive/mum/stories_en.json, made by private/prep/build_en_stories.py).
+// Tap a word or phrase for its Russian meaning. Each tapped place is a Words row (book_id = story, src 'tap'),
+// so we can see which words she needed; a few questions at the end are a Checks row (chapter 'q',
+// mins = minutes she spent reading), and Progress marks the story read.
+let ENS = null;
+async function loadStories() { ENS = await content('stories_en.json'); return ENS; }
+const EN_TOKEN = /[^\W_]+(?:['’-][^\W_]+)*/gu;
+const enNorm = w => w.toLowerCase().replace(/’/g, "'");
+const enStory = id => ENS && (ENS.stories || []).find(s => s.id === id);
+const EN_LEVEL = { A2: 'Easier', 'A2+': 'Medium', B1: 'Harder' };
+function enStoriesHtml() {
+  if (!ENS) {
+    loadStories().then(() => { if (route().name === 'home') render(); }).catch(() => {});
+    return `<section class="card stack" style="gap:8px"><b style="font-size:19px">English stories</b><div class="muted">Loading…</div></section>`;
+  }
+  return `<section class="stack" style="gap:12px"><h2 style="margin:0">English stories</h2>
+    <div class="muted">Written for your level. Tap any word you don't know to see it in Russian.</div>
+    ${(ENS.stories || []).map((s, k) => {
+      const p = progressOf(s.id), done = p && p.status === 'done';
+      return `<a class="card row" href="#/story/${esc(s.id)}" style="gap:16px;align-items:flex-start"><div class="grow stack" style="gap:4px">
+        <span class="small muted">Story ${k + 1} · ${EN_LEVEL[s.level] || esc(s.level)} · about ${Math.max(5, Math.round(s.words / 90))} minutes</span>
+        <b style="font-size:20px">${esc(s.title)}</b><span class="muted">${esc(s.blurb)}</span></div>
+        <span class="pill ${done ? 'green' : ''}">${done ? '✓ Read' : p ? 'Continue ›' : 'Read ›'}</span></a>`;
+    }).join('')}</section>`;
+}
+function enTapped(sid) { return (D.words || []).filter(w => w.book_id === sid && w.src === 'tap'); }
+EN_VIEWS.story = async r => {
+  try { await loadStories(); } catch (e) { location.hash = '#/home'; return null; }
+  const s = enStory(r.a);
+  if (!s) { location.hash = '#/home'; return null; }
+  if (!UI.es || UI.es.id !== s.id) {
+    const toks = [];
+    s.paras.forEach(p => { (p.match(EN_TOKEN) || []).forEach(w => toks.push(w)); });
+    UI.es = { id: s.id, t0: Date.now(), phase: 'read', ans: {}, toks, norm: toks.map(enNorm), sel: null };
+    if (!progressOf(s.id)) save([{ t: 'Progress', rows: [{ book_id: s.id, status: 'reading', started: today(), updated: today() }] }]);
+  }
+  const E = UI.es, back = `<a class="icon-btn" href="#/home" aria-label="Back">${ICON.back}</a>`;
+  if (E.phase === 'read') {
+    let i = 0;
+    const paras = s.paras.map(p => '<p>' + p.replace(EN_TOKEN, w => `\u0001${i++}\u0002${w}\u0003`).split(/(\u0001\d+\u0002[^\u0003]*\u0003)/).map(part => {
+      const m = /^\u0001(\d+)\u0002([^\u0003]*)\u0003$/.exec(part);
+      return m ? `<span class="ew" data-act="enWord" data-i="${m[1]}">${esc(m[2])}</span>` : esc(part);
+    }).join('') + '</p>').join('');
+    return `<div class="page white full" lang="en"><header class="head">${back}<h1 style="font-size:24px">${esc(s.title)}</h1></header>
+      <article class="estory">${paras}</article>
+      <button class="btn" data-act="enDone" style="align-self:flex-start;margin:8px 0 24px">I've finished reading</button>
+      <div class="ewpop" id="ewpop" hidden></div></div>`;
+  }
+  const qs = s.qs.map((q, k) => Object.assign({}, q, { order: seeded(q.o.map((_, j) => j), s.id + 'q' + k) }));
+  if (E.phase === 'q') {
+    const all = qs.every((_, k) => E.ans[k] != null);
+    return `<div class="page white full" lang="en"><header class="head">${back}<h1 style="font-size:24px">${esc(s.title)}</h1></header>
+      <div class="muted" style="font-size:18px">A few questions about the story. No hurry, and you can look back at the text.</div>
+      ${qs.map((q, k) => `<section class="stack" style="gap:8px"><b style="font-size:19px">${k + 1}. ${esc(q.q)}</b>
+        ${q.order.map(j => `<button class="opt ${E.ans[k] === j ? 'sel' : ''}" style="min-height:56px;font-size:18px;text-align:left" data-act="enAns" data-k="${k}" data-j="${j}">${esc(q.o[j])}</button>`).join('')}</section>`).join('')}
+      <div class="row" style="gap:10px;margin-bottom:24px"><button class="btn ghost" data-act="enReread">Back to the text</button>
+        <button class="btn" data-act="enCheck" ${all ? '' : 'disabled'}>Check my answers</button></div></div>`;
+  }
+  const score = qs.filter((q, k) => E.ans[k] === q.a).length;
+  const taps = enTapped(s.id).filter(w => w.added === today());
+  return `<div class="page white full" lang="en"><header class="head">${back}<h1 style="font-size:24px">${esc(s.title)}</h1></header>
+    <section class="darkcard stack" style="gap:8px"><div style="font-size:40px;font-weight:700">${score} of ${qs.length}</div>
+      <div>${score === qs.length ? 'You understood everything. Wonderful!' : score >= 3 ? 'You understood the story well.' : 'This one was hard. That is fine: the next ones will help.'}</div></section>
+    ${qs.map((q, k) => `<div class="stack" style="gap:2px"><b>${k + 1}. ${esc(q.q)}</b><span style="color:${E.ans[k] === q.a ? 'var(--green-ink, #2E7D4F)' : 'var(--ink2)'}">${E.ans[k] === q.a ? '✓ ' : '→ '}${esc(q.o[q.a])}</span></div>`).join('')}
+    ${taps.length ? `<section class="card stack" style="gap:6px"><b>Words you looked up</b>${taps.map(w => `<div><b>${esc(w.base)}</b> — <span lang="ru">${esc(s.gloss[w.base] || '')}</span></div>`).join('')}</section>` : ''}
+    <a class="btn" href="#/home" style="align-self:flex-start;margin-bottom:24px">Back to the stories</a></div>`;
+};
+// The longest glossed phrase around word i, else the word itself.
+function enLookup(s, E, i) {
+  for (let n = 6; n >= 2; n--) {
+    for (let a = Math.max(0, i - n + 1); a <= i && a + n <= E.norm.length; a++) {
+      const key = E.norm.slice(a, a + n).join(' ');
+      if (s.gloss[key]) return { key, a, b: a + n - 1, ru: s.gloss[key] };
+    }
+  }
+  const w = E.norm[i], base = w.replace(/'s$/, '');
+  if (s.gloss[w]) return { key: w, a: i, b: i, ru: s.gloss[w] };
+  if (s.gloss[base]) return { key: base, a: i, b: i, ru: s.gloss[base] };
+  return { key: w, a: i, b: i, ru: /^[A-Z]/.test(E.toks[i]) ? 'имя или название' : '' };
+}
+function enShowWord(i) {
+  const E = UI.es, s = enStory(E.id), pop = $('#ewpop');
+  if (!s || !pop) return;
+  document.querySelectorAll('.ew.on').forEach(x => x.classList.remove('on'));
+  const L = enLookup(s, E, i);
+  for (let k = L.a; k <= L.b; k++) { const el = document.querySelector('.ew[data-i="' + k + '"]'); if (el) el.classList.add('on'); }
+  pop.hidden = false;
+  pop.innerHTML = `<b>${esc(E.toks.slice(L.a, L.b + 1).join(' '))}</b><span lang="ru">${L.ru ? esc(L.ru) : '<span class="muted">no translation here yet</span>'}</span>`;
+  // In a phrase, the tapped word's own meaning too.
+  const one = L.b > L.a && (s.gloss[E.norm[i]] || s.gloss[E.norm[i].replace(/'s$/, '')]);
+  if (one) pop.innerHTML += `<span class="small" style="color:#C3CAD6">${esc(E.toks[i])} — <span lang="ru">${esc(one)}</span></span>`;
+  const key = E.id + ':' + L.a;
+  if (L.ru !== 'имя или название' && !(D.words || []).some(w => w.key === key)) save([{ t: 'Words', rows: [{ key, book_id: E.id, word_id: L.a, base: L.key, st: 'tap', s: 0, due: '', misses: 0, src: 'tap', added: today(), last: today() }] }]);
+}
+Object.assign(ACTS, {
+  enWord: el => enShowWord(Number(el.dataset.i)),
+  enDone: () => { UI.es.phase = 'q'; UI.es.mins = Math.max(1, Math.round((Date.now() - UI.es.t0) / 60000)); render(); window.scrollTo(0, 0); },
+  enReread: () => { UI.es.phase = 'read'; render(); },
+  enAns: el => { UI.es.ans[el.dataset.k] = Number(el.dataset.j); render(); },
+  enCheck: () => {
+    const E = UI.es, s = enStory(E.id);
+    if (!s) return;
+    const score = s.qs.filter((q, k) => E.ans[k] === q.a).length, p = progressOf(s.id) || {};
+    save([{ t: 'Checks', rows: [{ id: rid(), date: today(), book_id: s.id, chapter: 'q', score, total: s.qs.length, passed: score >= 3, mins: E.mins || 0, words: s.words }] },
+      { t: 'Progress', rows: [Object.assign({ book_id: s.id, started: today() }, p, { status: 'done', finished: today(), final_score: score, updated: today() })] }]);
+    E.phase = 'done';
+    render(); window.scrollTo(0, 0);
+  },
+});
+document.addEventListener('click', e => {
+  const pop = $('#ewpop');
+  if (pop && !pop.hidden && !e.target.closest('.ew,.ewpop')) { pop.hidden = true; document.querySelectorAll('.ew.on').forEach(x => x.classList.remove('on')); }
+});
 
 document.addEventListener('click', e => {
   const el = e.target.closest('[data-act]');
