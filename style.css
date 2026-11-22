@@ -286,3 +286,5 @@ input.field { width: 100%; padding: 12px 14px; border-radius: 12px; border: 1px 
 .mstage img.z { max-width: none; max-height: none; width: 200%; height: auto; }
 .mend { align-items: center; text-align: center; gap: 16px; padding: 24px; }
 .mhint { text-align: center; padding: 6px 12px calc(env(safe-area-inset-bottom) + 6px); color: #C3CAD6; }
+.mvol.locked .mcover { opacity: .5; }
+.mvol .row svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; }

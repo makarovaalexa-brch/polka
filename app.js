@@ -16,7 +16,7 @@ const yes = v => v === true || v === 'true';
 const fmt = n => Number(n).toLocaleString('ru-RU');
 const IS_LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 
-const APP_VERSION = 35; // keep equal to the number in sw.js's CACHE name
+const APP_VERSION = 36; // keep equal to the number in sw.js's CACHE name
 
 // The English copy lives at /polka-en/ (outside this app's scope, so phones keep them as two apps)
 // and loads its code from /polka/. It keeps its own storage keys.
@@ -44,6 +44,10 @@ function plural(n, one, few, many) {
   const a = n % 10, b = n % 100;
   return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many;
 }
+// Rewards are coins (1 coin was 1 screen minute; the Ledger column is still called mins).
+function coinWord(n) { return plural(Math.abs(num(n, 0)), 'монета', 'монеты', 'монет'); }
+function coins(n) { return n + ' ' + coinWord(n); }
+const screenOn = () => yes(S().screen_on);
 /** 2026-11-21 → 21 ноября 2026 */
 function dateRu(iso) {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ''));
@@ -472,11 +476,11 @@ const backBtn = to => '<a class="icon-btn" href="#/' + to + '" aria-label="На�
 
 const INFO = {
   lock: 'Начатую книгу нужно дочитать, прежде чем начать следующую. Сменить её раньше можно с разрешения родителя.',
-  mult: 'Книги разложены по возрасту: для какого возраста они обычно у носителей языка. Книга выше твоего уровня даёт больше минут, до ×1,25; ниже — меньше, до ×0,75. Слишком сложные откроются, когда твой уровень вырастет.',
+  mult: 'Книги разложены по возрасту: для какого возраста они обычно у носителей языка. Книга выше твоего уровня даёт больше монет, до ×1,25; ниже — меньше, до ×0,75. Слишком сложные откроются, когда твой уровень вырастет.',
   level: 'Это возраст ребёнка, для которого русский родной и который читает такие же книги, как ты. Если ты с первой попытки проходишь проверки глав в книгах для какого-то возраста, это и есть твой уровень. Между этим он понемногу растёт с каждой проверкой главы и выученными словами. Раз в три месяца — проверка уровня: тест словаря, где ты сравниваешься с русскими школьниками, которые проходили те же слова. Уровень никогда не опускается.',
   cover: 'Сколько слов из книги ты, скорее всего, знаешь — по тесту на уровень. Имена героев не считаются. Чем больше, тем легче читать.',
   ranks: 'Звание считается по словам, прочитанным за последние 3 месяца. Если перестать читать, оно может опуститься — и снова подняться, когда вернёшься к книгам.',
-  bingo: 'Каждая прочитанная книга закрывает одну подходящую клетку. Ряд, столбец или диагональ — +10 мин, вся карточка — +30 мин. Потом можно начать новую карточку с другими клетками.',
+  bingo: 'Каждая прочитанная книга закрывает одну подходящую клетку. Ряд, столбец или диагональ — +10 монет, вся карточка — +30 монет. Потом можно начать новую карточку с другими клетками.',
   blitz: 'В раунде до 20 вопросов на 2 минуты: сначала слова на сегодня, потом повторение других твоих слов. Слово уходит из списка после трёх верных ответов в разные дни: значение, слово в предложении, слово по значению. Ошибка — и слово начинает заново и вернётся ещё в этом раунде. После трёх ответов слово отдыхает месяц, потом одна проверка.',
   quiz: 'Чем длиннее глава, тем больше вопросов. Для зачёта нужно три четверти верных ответов. Если не получилось, можно перечитать главу и попробовать ещё раз — вопросы будут другие.',
   final: 'Финальная проверка по всей книге: нужно 6 верных из 8.',
@@ -550,8 +554,8 @@ VIEWS.home = () => {
               : `<a class="btn" href="#/read/${s.cur_book}/${nextCh}">${passed ? 'Читать главу ' + nextCh : 'Читать'}</a>`)
               : '<span class="muted">Книгу ещё готовлю</span>'}
             <div class="stack" style="gap:2px">
-              ${allPassed ? '' : `<b style="font-size:15px">+${chPay} мин за главу</b>`}
-              <span class="small" style="color:var(--amber-ink);font-weight:600">+${finalMins(cur)} мин за всю книгу</span>
+              ${allPassed ? '' : `<b style="font-size:15px">+${coins(chPay)} за главу</b>`}
+              <span class="small" style="color:var(--amber-ink);font-weight:600">+${coins(finalMins(cur))} за всю книгу</span>
             </div>
           </div>
         </div>
@@ -573,12 +577,12 @@ VIEWS.home = () => {
   return `<div class="page">
     ${demoBanner()}
     <header class="head"><h1>Книжная полка</h1>
-      <div class="coin">${ICON.coin}<b>${bal}</b><span class="muted">мин${pend ? ' · ' + pend.mins + ' ждут' : ''}</span></div>
-      <button class="btn small dark" data-act="redeem" ${pend || bal < 15 ? 'disabled' : ''}>Потратить</button>
+      <div class="coin">${ICON.coin}<b>${bal}</b><span class="muted">${coinWord(bal)}${pend ? ' · ' + pend.mins + ' ждут' : ''}</span></div>
+      ${screenOn() ? `<button class="btn small dark" data-act="redeem" ${pend || bal < 15 ? 'disabled' : ''}>Потратить</button>` : mangaOn() ? '<a class="btn small dark" href="#/manga">Потратить</a>' : ''}
     </header>
     ${tracks}
     ${!placed() ? `<a class="card row" href="#/test" style="gap:14px"><span style="font-size:28px">🧭</span><div class="grow"><b>Тест на уровень · 6 минут</b><div class="small muted">Узнай, какие книги тебе по силам</div></div><span class="pill">Начать ›</span></a>`
-      : levelDue() ? `<a class="card row" href="#/test" style="gap:14px"><span style="font-size:28px">🧭</span><div class="grow"><b>${vtRecal() ? 'Новый тест словаря' : 'Проверка уровня'} · 6 минут · +${LEVEL_REWARD} мин</b><div class="small muted">${vtRecal() ? 'Точнее прежнего: слова сравниваются с ответами русских школьников' : 'Прошло три месяца — посмотрим, насколько ты вырос'}</div></div><span class="pill">Начать ›</span></a>` : ''}
+      : levelDue() ? `<a class="card row" href="#/test" style="gap:14px"><span style="font-size:28px">🧭</span><div class="grow"><b>${vtRecal() ? 'Новый тест словаря' : 'Проверка уровня'} · 6 минут · +${coins(LEVEL_REWARD)}</b><div class="small muted">${vtRecal() ? 'Точнее прежнего: слова сравниваются с ответами русских школьников' : 'Прошло три месяца — посмотрим, насколько ты вырос'}</div></div><span class="pill">Начать ›</span></a>` : ''}
     ${current}
     <section class="stack" style="gap:12px">
       <div class="row"><h2 class="grow" style="margin:0">Хочу прочитать</h2><a class="pill" href="#/library">Библиотека ›</a></div>
@@ -588,7 +592,7 @@ VIEWS.home = () => {
       <a class="tile dark" href="#/blitz"><div class="t">${ICON.bolt}Блиц</div><div style="color:var(--dark-muted)">${due ? 'На сегодня ' + due : 'На сегодня всё'}</div></a>
       <a class="tile light" href="#/quests"><div class="t">Задания<span class="small muted" style="margin-left:auto">${qDone} из ${q.length}</span></div>
         <div class="bar green"><i style="width:${Math.round(qDone / q.length * 100)}%"></i></div>
-        <div class="small muted">${nextQ ? esc(nextQ.text.split('.')[0]) + ' · +' + nextQ.r + ' мин' : 'Все задания выполнены'}</div></a>
+        <div class="small muted">${nextQ ? esc(nextQ.text.split('.')[0]) + ' · +' + coins(nextQ.r) : 'Все задания выполнены'}</div></a>
     </div>
     ${mangaOn() ? mangaTile() : ''}
   </div>`;
@@ -598,7 +602,7 @@ function mangaTile() {
   const next = MANGA ? (MANGA.series || []).map(mangaNext).filter(Boolean)[0] : null;
   const opened = mangaOpened();
   return `<a class="tile light row" href="#/manga" style="gap:14px;flex-direction:row;align-items:center"><span style="font-size:28px">📖</span>
-    <div class="grow"><div class="t">Манга</div><div class="small muted">${opened ? 'Открыто глав: ' + opened + ' · ' : ''}${next ? 'следующая за ' + mangaPrice() + ' мин' : MANGA ? 'всё открыто' : 'награда за минуты'}</div></div><span class="pill">›</span></a>`;
+    <div class="grow"><div class="t">Манга</div><div class="small muted">${opened ? 'Открыто томов: ' + opened + ' · ' : ''}${next ? 'следующий том за ' + coins(mangaPrice()) : MANGA ? 'всё открыто' : 'награда за монеты'}</div></div><span class="pill">›</span></a>`;
 }
 
 // ----------------------------------------------------------- library ---
@@ -626,7 +630,7 @@ VIEWS.library = () => {
   };
   const groups = [
     ['Твой уровень', 'читаются легко', id => ageDiff(BOOKS[id]) <= 0, 'var(--muted)'],
-    ['Вызов', 'больше минут', id => ageDiff(BOOKS[id]) > 0 && !tooHard(BOOKS[id]), 'var(--amber-ink)'],
+    ['Вызов', 'больше монет', id => ageDiff(BOOKS[id]) > 0 && !tooHard(BOOKS[id]), 'var(--amber-ink)'],
     ['Позже', 'откроются с уровнем', id => tooHard(BOOKS[id]), 'var(--faint)'],
   ].map(([t, note, f, c]) => {
     const list = ids.filter(f);
@@ -700,7 +704,7 @@ VIEWS.book = r => {
         <div class="grid3" style="margin-top:6px">
           <div class="fact"><b>${pagesText(b)}</b><span class="tiny muted">${b.counted ? '' : '≈ '}${fmt(b.words)} слов${b.chapters > 1 ? ' · ' + b.chapters + ' ' + plural(b.chapters, 'глава', 'главы', 'глав') : ''} · ${readHours(b).replace('≈ ', '')}</span></div>
           <div class="fact"><b>${b.age}+ лет</b><span class="tiny muted">${hard ? 'пока сложновато' : ageDiff(b) > 0 ? 'выше твоего уровня · ×' + ru(mult(b)) : ageDiff(b) < 0 ? 'ниже твоего уровня · ×' + ru(mult(b)) : 'твой уровень'}</span></div>
-          <div class="fact"><b>${hard ? '—' : '≈ ' + (bookMins(b) + finalMins(b)) + ' мин'}</b><span class="tiny muted">${hard ? '' : bookMins(b) + ' за главы + ' + finalMins(b) + ' за всю книгу'}</span></div>
+          <div class="fact"><b>${hard ? '—' : '≈ ' + coins(bookMins(b) + finalMins(b))}</b><span class="tiny muted">${hard ? '' : bookMins(b) + ' за главы + ' + finalMins(b) + ' за всю книгу'}</span></div>
         </div>
         ${action}
       </div>
@@ -744,8 +748,8 @@ VIEWS.read = async r => {
   const end = look ? `<div class="end">${n < book.chapters.length ? `<a class="btn ghost" href="#/read/${id}/${n + 1}?look=1">Глава ${n + 1} ›</a>` : ''}<a class="btn ghost" href="#/book/${id}">К книге</a></div>`
     : n < book.chapters.length || !passed
     ? (passed ? `<div class="end"><a class="btn" href="#/read/${id}/${n + 1}">Глава ${n + 1} ›</a></div>`
-      : `<div class="end"><a class="btn" href="#/check/${id}/${n}">Проверка главы · +${chMins(b, ch.words)} мин</a></div>`)
-    : `<div class="end"><a class="btn" href="#/check/${id}/final">Финальная проверка · +${finalMins(b)} мин</a></div>`;
+      : `<div class="end"><a class="btn" href="#/check/${id}/${n}">Проверка главы · +${coins(chMins(b, ch.words))}</a></div>`)
+    : `<div class="end"><a class="btn" href="#/check/${id}/final">Финальная проверка · +${coins(finalMins(b))}</a></div>`;
   return `<div class="reader ${prefs.theme}" id="reader">
     <header class="r-bar">
       <a class="r-icon" href="${look ? '#/book/' + id : '#/home'}" aria-label="${look ? 'К книге' : 'На полку'}">${ICON.back}</a>
@@ -1076,7 +1080,7 @@ VIEWS.check = async r => {
   let foot;
   if (!C.done) foot = `<button class="btn" data-act="submitCheck" data-key="${key}" style="align-self:flex-start" ${all ? '' : 'disabled'}>Проверить</button>`;
   else if (C.passed) foot = `<section class="result"><div class="grow stack" style="gap:4px"><b style="font-size:20px">${C.score} из ${C.qs.length} · ${isFinal ? 'книга прочитана!' : 'глава засчитана'}</b>
-      <span style="color:var(--dark-muted)">${C.mins ? '+' + C.mins + ' мин' : 'Эта глава уже была засчитана'}${C.note ? ' · ' + esc(C.note) : ''}</span></div>
+      <span style="color:var(--dark-muted)">${C.mins ? '+' + coins(C.mins) : 'Эта глава уже была засчитана'}${C.note ? ' · ' + esc(C.note) : ''}</span></div>
       <a class="btn amber" href="${isFinal ? '#/book/' + id + '?from=home' : n < book.chapters.length ? '#/read/' + id + '/' + (n + 1) : '#/home'}">${isFinal ? 'Оценить книгу' : n < book.chapters.length ? 'Глава ' + (n + 1) + ' ›' : 'На полку'}</a></section>`;
   else foot = `<section class="result fail"><b class="grow" style="font-size:20px">${C.score} из ${C.qs.length} · нужно ${need}</b>
       ${isFinal ? '' : `<a class="btn ghost" href="#/read/${id}/${n}">Перечитать</a>`}<button class="btn" data-act="retryCheck" data-key="${key}">Ещё раз</button></section>`;
@@ -1228,7 +1232,7 @@ VIEWS.blitz = async () => {
   return `<div class="page dark full">${head}
     <section class="stack" style="margin-top:30px;gap:10px">
       <div style="font-size:64px;font-weight:700;line-height:1">${B.score} верно</div>
-      <div style="font-size:20px;color:var(--amber);font-weight:600">${won ? '+' + bzMins(B.score, B.qi) + ' мин' : ''}</div>
+      <div style="font-size:20px;color:var(--amber);font-weight:600">${won ? '+' + coins(bzMins(B.score, B.qi)) : ''}</div>
       <div class="stack" style="margin-top:20px;gap:6px">${B.log.map(l => `<div class="row" style="gap:16px;padding:12px 16px;border-radius:12px;background:var(--dark2)">
         <div class="grow" style="font-size:18px">${esc(l.label)}</div>
         <div class="dots">${[0, 1, 2].map(i => '<i class="' + (i < l.s ? 'on' : '') + '"></i>').join('')}</div>
@@ -1423,7 +1427,7 @@ function bingoRewards() {
   const st = bingoState();
   const ops = st.full.filter(x => !(D.ledger || []).some(l => l.kind === 'bingo' && l.ref === 'c' + st.n + 'l' + x.i)).map(x => ledger('bingo', 10, 'c' + st.n + 'l' + x.i));
   if (st.complete && !(D.ledger || []).some(l => l.kind === 'bingo' && l.ref === 'c' + st.n + 'full')) ops.push(ledger('bingo', 30, 'c' + st.n + 'full'));
-  if (ops.length) { save(ops); setTimeout(() => toast(st.complete ? 'Карточка бинго заполнена! +' + (ops.length * 10 + 20) + ' мин' : 'Бинго! +' + ops.length * 10 + ' мин'), 900); }
+  if (ops.length) { save(ops); setTimeout(() => toast(st.complete ? 'Карточка бинго заполнена! +' + coins(ops.length * 10 + 20) : 'Бинго! +' + coins(ops.length * 10)), 900); }
 }
 
 function achievements() {
@@ -1530,7 +1534,7 @@ VIEWS.me = () => {
         <div class="age" style="left:${pos(hm)}%"><span>твой возраст</span><i></i></div>
         <div class="ticks">${Array.from({ length: 11 }, (_, i) => '<span>' + (ageMin + i) + '</span>').join('')}</div></div>
       <div class="small muted">Твой возраст — ${ym(hm)} · сравнение с детьми, для которых русский родной</div>
-      ${levelDue() ? `<a class="btn amber" href="#/test" style="align-self:flex-start">Проверка уровня · +${LEVEL_REWARD} мин</a>`
+      ${levelDue() ? `<a class="btn amber" href="#/test" style="align-self:flex-start">Проверка уровня · +${coins(LEVEL_REWARD)}</a>`
         : placed() ? `<div class="small muted">Следующая проверка уровня — через ${levelDueIn()} ${plural(levelDueIn(), 'день', 'дня', 'дней')}</div>` : ''}
       ${levelHistory().length > 1 ? `<div class="stack" style="gap:4px;margin-top:4px">${levelHistory().slice().reverse().map(h => `<div class="small muted">${esc(h.d)} · ${ym(h.m)}${h.s ? ' · словарь ≈ ' + fmt(Math.round(h.s / 100) * 100) : ''}</div>`).join('')}</div>` : ''}</section>`
     : `<section class="darkcard stack" style="gap:14px"><span class="muted">Язык</span>
@@ -1644,7 +1648,7 @@ VIEWS.test = async () => {
       <p style="margin:0">${T.n} слов. У каждого — пять вариантов значения, выбери верный. Слова подбираются по ходу теста: если отвечаешь верно, они становятся труднее.</p>
       <p style="margin:0">Если не знаешь слова, нажми «Не знаю» — не угадывай. Тест сравнивает тебя с русскими школьниками разного возраста, которые проходили те же слова, и угаданный ответ сделает результат неточным.</p>
       ${T.recal ? `<p style="margin:0">Это новый тест, точнее прежнего: у него есть настоящие нормы по возрастам. После него уровень будет считаться по нему.</p>` : ''}
-      ${T.recheck ? `<p style="margin:0">Около 6 минут. За проверку — +${LEVEL_REWARD} минут.</p>` : '<p style="margin:0">Около 6 минут.</p>'}
+      ${T.recheck ? `<p style="margin:0">Около 6 минут. За проверку — +${coins(LEVEL_REWARD)}.</p>` : '<p style="margin:0">Около 6 минут.</p>'}
       <button class="btn" data-act="testGo" style="align-self:flex-start">Начать</button></div></div>`;
   if (T.phase === 'run') {
     if (!T.q) T.q = vtNext(T);
@@ -1663,8 +1667,8 @@ VIEWS.test = async () => {
     <div class="darkcard stack" style="gap:12px"><span class="muted">${T.trial ? 'Пробный тест (ничего не сохранено). Словарь — как у носителя языка в возрасте' : 'Твой словарь — как у носителя языка в возрасте'}</span>
       <div style="font-size:44px;font-weight:700">${ym(R.tested)}</div>
       ${T.trial ? `<div class="muted">вероятно от ${ym(R.lo)} до ${ym(R.hi)}</div>` : ''}
-      ${T.recheck && !T.recal ? `<div class="muted">${R.months > T.before ? 'Уровень: было ' + ym(T.before) + ' → стало ' + ym(R.months) + ' 🎉' : 'Уровень сохранён: ' + ym(R.months)} · +${LEVEL_REWARD} мин</div>`
-        : T.recal ? `<div class="muted">Теперь твой уровень — ${ym(R.months)} · +${LEVEL_REWARD} мин</div>` : ''}
+      ${T.recheck && !T.recal ? `<div class="muted">${R.months > T.before ? 'Уровень: было ' + ym(T.before) + ' → стало ' + ym(R.months) + ' 🎉' : 'Уровень сохранён: ' + ym(R.months)} · +${coins(LEVEL_REWARD)}</div>`
+        : T.recal ? `<div class="muted">Теперь твой уровень — ${ym(R.months)} · +${coins(LEVEL_REWARD)}</div>` : ''}
       <div class="muted">${R.right} из ${R.n} слов · словарный запас ≈ ${fmt(Math.round(R.size / 500) * 500)} слов · сравнение с русскими школьниками</div></div>
     <a class="btn" href="#/library" style="align-self:flex-start">Посмотреть книги по силам</a></div>`;
 };
@@ -1878,55 +1882,64 @@ function signalsHtml() {
 // ----------------------------------------------------------- parent ---
 
 // ------------------------------------------------------------- manga ---
-/* Manga as prizes: chapters are opened with earned minutes, in order, and stay open. An opened chapter is a
-   Ledger row (kind 'manga', ref '<volume>:<chapter>', minus the price), so no extra table is needed.
-   Volumes are prepared on the computer by private/prep/prep_manga.py (pages in Drive's «Манга», index in manga.json). */
+/* Manga as prizes: whole volumes are opened with earned coins, in order within a series, and stay open.
+   An opened volume is a Ledger row (kind 'manga', ref '<volume id>', minus the price; 0 when a parent opens it),
+   so no extra table is needed. Price: manga_vol_price coins, or when that is 0, what about an hour of
+   reading pays (60 min x ratio, plus the whole-book bonus). Volumes are prepared on the computer by
+   private/prep/prep_manga.py (pages in Drive's «Манга», index in manga.json). */
 let MANGA = null;
 function mangaOn() { return yes(S().manga_on) && !EN(); }
 async function loadManga() { MANGA = await content('manga.json'); return MANGA; }
-function mangaPrice() { return Math.max(0, num(S().manga_price, 15)); }
-const mangaKey = (v, c) => v.id + ':' + c.n;
-function mangaUnlocked(key) { return (D.ledger || []).some(l => l.kind === 'manga' && l.ref === key); }
+function mangaAuto() { return Math.max(5, Math.round(60 * num(S().ratio, 0.5) * (1 + num(S().final_pct, 50) / 100) / 5) * 5); }
+function mangaPrice() { const p = num(S().manga_vol_price, 0); return p > 0 ? p : mangaAuto(); }
+function mangaUnlocked(vid) { return (D.ledger || []).some(l => l.kind === 'manga' && l.ref === vid); }
 function mangaOpened() { return (D.ledger || []).filter(l => l.kind === 'manga').length; }
-function mangaFlat(s) { const out = []; s.volumes.forEach(v => v.chapters.forEach((c, i) => out.push({ s, v, c, i, key: mangaKey(v, c) }))); return out; }
-function mangaAll() { return MANGA ? (MANGA.series || []).reduce((a, s) => a.concat(mangaFlat(s)), []) : []; }
-function mangaFind(key) { return mangaAll().find(x => x.key === key); }
-function mangaNext(s) { return mangaFlat(s).find(x => !mangaUnlocked(x.key)); }
+// Chapters of a series, in order; key (volume:chapter) is for reading position and "read" marks.
+function mangaFlat(s) { const out = []; s.volumes.forEach(v => v.chapters.forEach((c, i) => out.push({ s, v, c, i, key: v.id + ':' + c.n }))); return out; }
+function mangaVols() { return MANGA ? (MANGA.series || []).reduce((a, s) => a.concat(s.volumes.map(v => ({ s, v }))), []) : []; }
+function mangaVol(vid) { return mangaVols().find(x => x.v.id === vid); }
+function mangaNext(s) { const v = s.volumes.find(y => !mangaUnlocked(y.id)); return v ? { s, v } : null; }
 function spendable() { const p = pendingReq(); return balance() - (p ? num(p.mins, 0) : 0); }
 function chName(c) { return c.part ? 'Часть ' + c.n : 'Глава ' + c.n + (c.title ? ' · ' + c.title : ''); }
+const volName = x => x.s.title + ', том ' + x.v.n;
 
 VIEWS.manga = async () => {
   if (!mangaOn()) { location.hash = '#/home'; return null; }
   try { await loadManga(); } catch (e) {
     return `<div class="page full"><header class="head">${backBtn('home')}<h1>Манга</h1></header><div class="empty">Манга скоро появится.</div></div>`;
   }
-  const price = mangaPrice(), avail = spendable(), read = store.get('mread', {});
-  const row = x => {
-    const open = mangaUnlocked(x.key), n = x.c.end - x.c.start;
-    if (open) return `<a class="mch" href="#/mread/${esc(x.v.id)}/${x.i}"><span class="grow">${esc(chName(x.c))}</span><span class="small muted">${n} стр.</span>${read[x.key] ? '<span class="pill green">✓ прочитана</span>' : '<span class="pill">Читать ›</span>'}</a>`;
-    const next = mangaNext(x.s);
-    if (next && next.key === x.key) return `<div class="mch next"><span class="grow">${esc(chName(x.c))}</span><span class="small muted">${n} стр.</span><button class="btn small" data-act="mangaOpen" data-k="${esc(x.key)}" ${avail < price ? 'disabled' : ''}>Открыть · ${price} мин</button></div>`;
-    return `<div class="mch locked"><span class="grow">${esc(chName(x.c))}</span>${ICON.lock}</div>`;
+  const price = mangaPrice(), avail = spendable(), read = store.get('mread', {}) || {};
+  const vol = (s, v) => {
+    const open = mangaUnlocked(v.id), nx = mangaNext(s), isNext = nx && nx.v.id === v.id;
+    const chs = mangaFlat(s).filter(x => x.v === v);
+    const pages = v.pages.length;
+    const body = open
+      ? chs.map(x => `<a class="mch" href="#/mread/${esc(v.id)}/${x.i}"><span class="grow">${esc(chName(x.c))}</span><span class="small muted">${x.c.end - x.c.start} стр.</span>${read[x.key] ? '<span class="pill green">✓</span>' : '<span class="pill">Читать ›</span>'}</a>`).join('')
+      : isNext ? `<div class="small muted">${chs.length} ${plural(chs.length, 'глава', 'главы', 'глав')} · ${pages} стр.</div>
+          <button class="btn small" data-act="mangaOpen" data-k="${esc(v.id)}" ${avail < price ? 'disabled' : ''} style="align-self:flex-start">Открыть том · ${coins(price)}</button>
+          ${avail < price ? `<div class="small muted">Ещё ${coins(price - avail)} — и том твой</div>` : ''}`
+      : `<div class="row small muted" style="gap:6px">${ICON.lock}<span>Откроется после тома ${s.volumes[s.volumes.indexOf(v) - 1].n}</span></div>`;
+    return `<div class="mvol ${open ? '' : 'locked'}">${asset(v.cover, 'class="mcover"')}<div class="grow stack" style="gap:8px"><b>Том ${v.n}${v.title ? ' · ' + esc(v.title) : ''}</b>${body}</div></div>`;
   };
   const series = (MANGA.series || []).map(s => `<section class="stack" style="gap:14px"><h2 style="margin:0">${esc(s.title)}</h2>
-    ${s.volumes.map(v => `<div class="mvol">${asset(v.cover, 'class="mcover"')}<div class="grow stack" style="gap:8px"><b>Том ${v.n}${v.title ? ' · ' + esc(v.title) : ''}</b>
-      ${mangaFlat(s).filter(x => x.v === v).map(row).join('')}</div></div>`).join('')}</section>`).join('');
+    ${s.volumes.map(v => vol(s, v)).join('')}</section>`).join('');
   return `<div class="page full"><header class="head">${backBtn('home')}<h1>Манга</h1>
-      <div class="coin">${ICON.coin}<b>${balance()}</b><span class="muted">мин</span></div></header>
-    <div class="small muted">Глава открывается за ${price} мин из заработанных и остаётся открытой. Главы идут по порядку.</div>
+      <div class="coin">${ICON.coin}<b>${balance()}</b><span class="muted">${coinWord(balance())}</span></div></header>
+    <div class="small muted">Том открывается за ${coins(price)} — это примерно час чтения — и остаётся твоим. Тома идут по порядку.</div>
     ${series || '<div class="empty">Манга скоро появится.</div>'}</div>`;
 };
 
 VIEWS.mread = async r => {
   if (!mangaOn()) { location.hash = '#/home'; return null; }
   try { await loadManga(); } catch (e) { location.hash = '#/manga'; return null; }
-  const x = mangaAll().find(y => y.v.id === r.a && y.i === num(r.b, 0));
-  if (!x || !mangaUnlocked(x.key)) { location.hash = '#/manga'; return null; }
+  const vx = mangaVol(r.a), i = num(r.b, 0);
+  if (!vx || !mangaUnlocked(vx.v.id) || !vx.v.chapters[i]) { location.hash = '#/manga'; return null; }
+  const x = mangaFlat(vx.s).find(y => y.v === vx.v && y.i === i);
   const n = x.c.end - x.c.start;
   UI.m = Object.assign({}, x, { n, p: Math.min(num((store.get('mpos', {}) || {})[x.key], 0), n - 1), zoom: false });
   return `<div class="mreader" id="mr">
     <div class="mtop"><a class="icon-btn" href="#/manga" aria-label="Назад">${ICON.back}</a>
-      <b class="grow" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(x.s.title)} · ${esc(chName(x.c))}</b>
+      <b class="grow" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(x.s.title)} · том ${x.v.n} · ${esc(chName(x.c))}</b>
       <span class="small" id="mcount"></span>
       <button class="icon-btn" data-act="mzoom" aria-label="Увеличить"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4M11 8v6M8 11h6"/></svg></button></div>
     <div class="mstage" id="mstage"></div>
@@ -1940,13 +1953,13 @@ function mShow() {
   if (!m || !stage) return;
   stage.classList.toggle('zoomed', m.zoom);
   if (m.p >= m.n) {
-    // End of the chapter: what next.
+    // End of the chapter: the next chapter of the volume, or the next volume.
     const all = mangaFlat(m.s), k = all.findIndex(y => y.key === m.key), nx = all[k + 1];
     const price = mangaPrice();
-    const next = !nx ? '<div class="muted">Это последняя глава, которая есть. Новые тома появятся позже.</div>'
-      : mangaUnlocked(nx.key) ? `<a class="btn" href="#/mread/${esc(nx.v.id)}/${nx.i}">${esc(chName(nx.c))} ›</a>`
-      : `<button class="btn" data-act="mangaOpen" data-k="${esc(nx.key)}" ${spendable() < price ? 'disabled' : ''}>Открыть ${esc(chName(nx.c))} · ${price} мин</button>`;
-    stage.innerHTML = `<div class="mend stack"><b style="font-size:26px">Глава прочитана</b>${next}<a class="btn ghost" href="#/manga" style="color:#FFFFFF;border-color:#2B3344">Ко всей манге</a></div>`;
+    const next = !nx ? '<div class="muted">Это последний том, который есть. Новые появятся позже.</div>'
+      : mangaUnlocked(nx.v.id) ? `<a class="btn" href="#/mread/${esc(nx.v.id)}/${nx.i}">${nx.v === m.v ? '' : 'Том ' + nx.v.n + ' · '}${esc(chName(nx.c))} ›</a>`
+      : `<button class="btn" data-act="mangaOpen" data-k="${esc(nx.v.id)}" ${spendable() < price ? 'disabled' : ''}>Открыть том ${nx.v.n} · ${coins(price)}</button>`;
+    stage.innerHTML = `<div class="mend stack"><b style="font-size:26px">${nx && nx.v === m.v ? 'Глава прочитана' : 'Том прочитан'}</b>${next}<a class="btn ghost" href="#/manga" style="color:#FFFFFF;border-color:#2B3344">Ко всей манге</a></div>`;
     $('#mcount').textContent = '';
     return;
   }
@@ -1998,6 +2011,14 @@ document.addEventListener('keydown', e => {
   if (e.key === 'ArrowLeft') mTurn(-f);
   if (e.key === ' ') mTurn(1);
 });
+// Parent: every volume, with a free "open" for any of them (out of order too).
+function mangaParentHtml() {
+  if (!MANGA) { loadManga().then(() => { if (route().name === 'parent') render(); }).catch(() => {}); return '<div class="small muted" style="margin-top:8px">Манга загружается…</div>'; }
+  const vs = mangaVols();
+  if (!vs.length) return '<div class="small muted" style="margin-top:8px">Томов пока нет: их добавляет prep_manga.py.</div>';
+  return '<div class="stack" style="gap:6px;margin-top:10px">' + vs.map(x => `<div class="row" style="gap:10px"><span class="grow small">${esc(volName(x))}</span>${mangaUnlocked(x.v.id)
+    ? '<span class="pill green">открыт</span>' : `<button class="btn ghost small" data-act="mangaGift" data-k="${esc(x.v.id)}">Открыть бесплатно</button>`}</div>`).join('') + '</div>';
+}
 
 VIEWS.parent = () => {
   if (!UI.parentOk) { setTimeout(() => openPin(), 0); return VIEWS.me(); }
@@ -2014,13 +2035,13 @@ VIEWS.parent = () => {
   const log = (D.ai_log || []).slice().reverse().slice(0, 10);
   return `<div class="page white full">
     <header class="head">${backBtn('me')}<h1>Для родителей</h1></header>
-    <section class="card stack" style="background:var(--bg);border:0">
+    ${screenOn() || pend ? `<section class="card stack" style="background:var(--bg);border:0">
       ${pend ? `<div class="row wrap"><div class="grow"><b style="font-size:18px">Просит ${String(pend.mins) === '60' ? '1 час' : pend.mins + ' мин'}</b>
-        <div class="small muted">Баланс ${balance()} мин. После подтверждения здесь одобрите столько же в «Экранном времени».</div></div>
+        <div class="small muted">Баланс: ${coins(balance())}. После подтверждения здесь одобрите столько же минут в «Экранном времени».</div></div>
         <button class="btn ghost small" data-act="decide" data-id="${pend.id}" data-ok="0">Отклонить</button>
         <button class="btn small" data-act="decide" data-id="${pend.id}" data-ok="1">Одобрить</button></div>`
-        : `<div>Запросов нет. Баланс ${balance()} мин.</div>`}
-    </section>
+        : `<div>Запросов нет. Баланс: ${coins(balance())}.</div>`}
+    </section>` : `<section class="card" style="background:var(--bg);border:0">Баланс: ${coins(balance())}.</section>`}
     ${cur ? `<section class="row"><div class="grow"><b>${esc(cur.title)}</b><div class="small muted">${yes(s.locked) ? 'Закреплена до конца. Следующая: ' + (s.next_book && BOOKS[s.next_book] ? '«' + BOOKS[s.next_book].short + '»' : 'пока не выбрана') + '.' : 'Открепили: можно сменить книгу сейчас.'}</div></div>
       <button class="btn ghost small" data-act="toggleLock">${yes(s.locked) ? 'Разрешить сменить' : 'Закрепить снова'}</button></section>` : ''}
     <section class="stack" style="padding-top:18px;border-top:1px solid var(--line)"><h2 style="margin:0">Уровень языка</h2>
@@ -2041,13 +2062,14 @@ VIEWS.parent = () => {
       <div class="row"><span class="grow small muted">Скорость чтения (ему не показывается): ${wpm()} сл/мин</span>${s.placement_date ? (levelDue() ? '' : '<button class="btn ghost small" data-act="retest">Проверить уровень сейчас</button>') : ''}<button class="btn ghost small" data-act="vtTry">Пройти тест самому</button></div>
     </section>
     <section class="stack" style="padding-top:18px;border-top:1px solid var(--line);gap:0"><h2 style="margin:0 0 6px">Награды</h2>
-      ${step('Минут экрана за минуту чтения', 'ratio', 0.1, 0.1, 2, v => ru(v) + ' мин')}
+      ${step('Монет за минуту чтения', 'ratio', 0.1, 0.1, 2, v => ru(v))}
       ${step('Вся книга (финальная проверка)', 'final_pct', 10, 0, 200, v => '+' + v + '% от глав')}
-      ${step('Раунд Блица (за 20+ верных вдвое)', 'blitz_reward', 1, 0, 10, v => v + ' мин')}
+      ${step('Раунд Блица (за 20+ верных вдвое)', 'blitz_reward', 1, 0, 10, v => coins(v))}
       <div class="grid4" style="grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin-top:14px">${[[-2, 'на 2+ года проще'], [-1, 'на год проще'], [0, 'его уровень'], [1, 'на год сложнее'], [2, 'на 2 года сложнее (предел)']].map(([d, l]) => `<div class="fact" style="text-align:center"><b>×${ru(MULT[String(d)])}</b><span class="tiny muted">${l}</span></div>`).join('')}</div>
-      <div class="stepper"><span class="grow">Манга за минуты</span><button class="btn small ${yes(s.manga_on) ? 'ghost' : ''}" data-act="toggleManga" style="width:auto">${yes(s.manga_on) ? 'Выключить' : 'Включить'}</button></div>
-      ${yes(s.manga_on) ? step('Цена одной главы манги', 'manga_price', 5, 5, 120, v => v + ' мин') : ''}
-      <div class="row" style="margin-top:14px"><span class="grow">Поправить баланс</span><button class="btn ghost small" data-act="adjust" data-m="-5">−5 мин</button><button class="btn ghost small" data-act="adjust" data-m="5">+5 мин</button></div>
+      <div class="stepper"><span class="grow">Обмен на экранное время</span><button class="btn small ${screenOn() ? 'ghost' : ''}" data-act="toggleScreen" style="width:auto">${screenOn() ? 'Выключить' : 'Включить'}</button></div>
+      <div class="stepper"><span class="grow">Манга за монеты</span><button class="btn small ${yes(s.manga_on) ? 'ghost' : ''}" data-act="toggleManga" style="width:auto">${yes(s.manga_on) ? 'Выключить' : 'Включить'}</button></div>
+      ${yes(s.manga_on) ? step('Цена тома манги', 'manga_vol_price', 5, 0, 300, v => v ? coins(v) : 'час чтения ≈ ' + mangaAuto()) + mangaParentHtml() : ''}
+      <div class="row" style="margin-top:14px"><span class="grow">Поправить баланс</span><button class="btn ghost small" data-act="adjust" data-m="-5">−5</button><button class="btn ghost small" data-act="adjust" data-m="5">+5</button></div>
     </section>
     <section class="stack" style="padding-top:18px;border-top:1px solid var(--line);gap:0"><h2 style="margin:0 0 6px">Вопросы к ИИ</h2>
       <div class="stepper"><span class="grow">Вопросы о книгах (Gemini)</span><button class="btn small ${aiOn() ? 'ghost' : ''}" data-act="toggleAi" style="width:auto">${aiOn() ? 'Выключить' : 'Включить'}</button></div>
@@ -2218,7 +2240,7 @@ const ACTS = {
   },
   redeem: () => {
     const bal = balance();
-    openSheet(`<h3>Потратить · есть ${bal} мин</h3>
+    openSheet(`<h3>Экранное время · есть ${coins(bal)}</h3><div class="muted">1 монета = 1 минута экрана</div>
       <div class="grid2">${[[15, '15 мин'], [60, '1 час']].map(([m, l]) => `<button class="btn ${bal < m ? '' : 'ghost'}" style="min-height:72px;font-size:20px" data-act="sendRequest" data-m="${m}" ${bal < m ? 'disabled' : ''}>${l}</button>`).join('')}</div>
       <button class="btn ghost" data-act="closeSheet" style="align-self:flex-end">Отмена</button>`);
   },
@@ -2271,7 +2293,7 @@ const ACTS = {
   testGo: () => { UI.test.phase = 'run'; render(); },
   testPick: el => (UI.test && UI.test.en ? enPick : testPick)(Number(el.dataset.j)),
   // quests, reviews
-  claim: el => { save([ledger('quest', Number(el.dataset.r), el.dataset.ref)]); toast('+' + el.dataset.r + ' мин'); render(); },
+  claim: el => { save([ledger('quest', Number(el.dataset.r), el.dataset.ref)]); toast('+' + coins(Number(el.dataset.r))); render(); },
   star: el => { UI.draftStars = Number(el.dataset.n); const t = $('#reviewText'); const keep = t ? t.value : ''; render(); const t2 = $('#reviewText'); if (t2) t2.value = keep; },
   saveReview: el => {
     const id = el.dataset.id, t = $('#reviewText');
@@ -2293,22 +2315,32 @@ const ACTS = {
   toggleLock: () => setNow({ locked: !yes(S().locked) }),
   toggleAi: () => setNow({ ai_enabled: !aiOn() }),
   toggleManga: () => setNow({ manga_on: !yes(S().manga_on) }),
+  toggleScreen: () => setNow({ screen_on: !screenOn() }),
+  mangaGift: el => {
+    const x = mangaVol(el.dataset.k);
+    if (!x || mangaUnlocked(x.v.id)) return;
+    save([ledger('manga', 0, x.v.id, volName(x) + ' · открыл родитель')]);
+    toast('Открыт: ' + volName(x));
+    render();
+  },
   mangaOpen: el => {
-    const x = mangaFind(el.dataset.k), price = mangaPrice();
+    const x = mangaVol(el.dataset.k), price = mangaPrice();
     if (!x) return;
-    if (spendable() < price) return toast('Не хватает минут', true);
-    openSheet(`<h3>Открыть: ${esc(chName(x.c))}?</h3><div class="muted">${esc(x.s.title)}, том ${x.v.n}. Спишется ${price} мин из ${balance()}. Глава останется открытой.</div>
-      <div class="row" style="justify-content:flex-end;gap:10px"><button class="btn ghost" data-act="closeSheet">Отмена</button><button class="btn" data-act="mangaBuy" data-k="${esc(x.key)}">Открыть</button></div>`, true);
+    const nx = mangaNext(x.s);
+    if (!nx || nx.v.id !== x.v.id) return toast(nx ? 'Сначала том ' + nx.v.n : 'Уже открыто');
+    if (spendable() < price) return toast('Не хватает монет', true);
+    openSheet(`<h3>Открыть том ${x.v.n}?</h3><div class="muted">${esc(volName(x))}: ${x.v.chapters.length} ${plural(x.v.chapters.length, 'глава', 'главы', 'глав')}. Спишется ${coins(price)} из ${balance()}. Том останется твоим.</div>
+      <div class="row" style="justify-content:flex-end;gap:10px"><button class="btn ghost" data-act="closeSheet">Отмена</button><button class="btn" data-act="mangaBuy" data-k="${esc(x.v.id)}">Открыть</button></div>`, true);
   },
   mangaBuy: el => {
-    const x = mangaFind(el.dataset.k), price = mangaPrice();
+    const x = mangaVol(el.dataset.k), price = mangaPrice();
     closeSheet();
     if (!x) return;
-    if (!mangaUnlocked(x.key)) {
-      if (spendable() < price) return toast('Не хватает минут', true);
-      save([ledger('manga', -price, x.key, x.s.title + ', том ' + x.v.n + ', ' + chName(x.c))]);
+    if (!mangaUnlocked(x.v.id)) {
+      if (spendable() < price) return toast('Не хватает монет', true);
+      save([ledger('manga', -price, x.v.id, volName(x))]);
     }
-    location.hash = '#/mread/' + x.v.id + '/' + x.i;
+    location.hash = '#/mread/' + x.v.id + '/0';
   },
   mzoom: () => { if (!UI.m) return; UI.m.zoom = !UI.m.zoom; mShow(); },
   // Makes the next level check due now (with a version he hasn't seen), instead of waiting 3 months.
