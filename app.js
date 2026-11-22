@@ -16,7 +16,7 @@ const yes = v => v === true || v === 'true';
 const fmt = n => Number(n).toLocaleString('ru-RU');
 const IS_LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 
-const APP_VERSION = 30; // keep equal to the number in sw.js's CACHE name
+const APP_VERSION = 31; // keep equal to the number in sw.js's CACHE name
 
 const store = {
   get(k, d) { try { const v = localStorage.getItem('polka_' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -425,12 +425,12 @@ function render() {
   if (r.name === 'connect') return connectFromLink(r.q);
   if (!connected() && !IS_LOCAL) { $('#tabs').hidden = true; $('#view').innerHTML = VIEWS.lock(); return; }
   if (!D) return;
-  const view = VIEWS[r.name] || VIEWS.home;
+  const view = (EN() && (EN_VIEWS[r.name] || EN_VIEWS.home)) || VIEWS[r.name] || VIEWS.home;
   if (r.name !== 'read') leaveReader();
   // A parent's trial test is forgotten as soon as they leave it, so he never sees it.
   if (r.name !== 'test' && UI.test && UI.test.trial) { UI.test = null; UI.testTry = false; }
   const tabs = $('#tabs');
-  tabs.hidden = TABS.indexOf(r.name) < 0;
+  tabs.hidden = EN() || TABS.indexOf(r.name) < 0;
   tabs.querySelectorAll('a').forEach(a => a.classList.toggle('on', a.dataset.tab === r.name));
   const out = view(r);
   const at = location.hash;
@@ -1683,6 +1683,125 @@ function finishTest() {
   render();
 }
 
+// ------------------------------------------------ English profile (lang 'en') ---
+
+/* A second kind of user: an adult Russian speaker learning English (settings.lang = 'en', her own
+   back end and Drive folder). The interface stays Russian; for now she has a home screen, her level
+   and the vocabulary test. Her screens replace his where EN_VIEWS has one; nothing of his changes.
+
+   Test: Nation's Vocabulary Size Test, bilingual Russian version (Victoria University of Wellington,
+   free to use; drive/en/vocab_test_en.json). Its words come from frequency bands of 1000 word families.
+   She sees 5 words per band from the commonest up and stops after two weak bands in a row
+   (1 or 0 right of 5). Size = Σ share right × 1000 over the bands shown. Level: CEFR from vocabulary
+   size, after Milton & Alexiou (2009) — approximate, as such tables are. */
+const EN = () => S().lang === 'en';
+const EN_PER_BAND = 5;
+const CEFR = [[0, 'A1', 'начальный'], [1500, 'A2', 'элементарный'], [2500, 'B1', 'средний'], [3250, 'B2', 'выше среднего'], [3750, 'C1', 'продвинутый'], [4500, 'C2', 'свободный']];
+function cefrOf(size) { let c = CEFR[0]; CEFR.forEach(x => { if (size >= x[0]) c = x; }); return c; }
+const CEFR_TEXT = {
+  A1: 'Знакомые слова и самые простые фразы: представиться, спросить дорогу, понять ценник.',
+  A2: 'Простые разговоры о себе, семье, покупках. Короткие простые тексты понятны со словарём.',
+  B1: 'Разговор на знакомые темы, простые книги и письма без постоянного словаря.',
+  B2: 'Свободный разговор с носителем, новости, адаптированные и многие обычные книги.',
+  C1: 'Почти любые тексты и фильмы, тонкости и юмор.',
+  C2: 'Как у образованного носителя языка.',
+};
+const enName = () => String(S().user_name || '').trim();
+const EN_VIEWS = {};
+
+EN_VIEWS.home = () => {
+  const s = S(), size = num(s.vocab_size, 0), c = s.cefr ? cefrOf(size) : null;
+  const level = placed() && c
+    ? `<section class="darkcard stack" style="gap:12px"><span class="muted">Ваш уровень английского</span>
+        <div class="row" style="gap:14px;align-items:baseline"><div style="font-size:54px;font-weight:700;line-height:1">${c[1]}</div><div style="font-size:20px">${c[2]}</div></div>
+        <div class="muted">Словарный запас ≈ ${fmt(Math.round(size / 100) * 100)} слов</div>
+        <div style="line-height:1.5">${esc(CEFR_TEXT[c[1]])}</div>
+        ${levelDueIn() <= 0 ? `<a class="btn amber" href="#/test" style="align-self:flex-start">Проверить уровень снова</a>`
+          : `<div class="small muted">Следующая проверка — через ${levelDueIn()} ${plural(levelDueIn(), 'день', 'дня', 'дней')}</div>`}
+        ${levelHistory().length > 1 ? `<div class="stack" style="gap:4px">${levelHistory().slice().reverse().map(h => `<div class="small muted">${esc(h.d)} · ${esc(h.c || '')} · ≈ ${fmt(Math.round(num(h.s, 0) / 100) * 100)} слов</div>`).join('')}</div>` : ''}</section>`
+    : `<a class="card big row" href="#/test" style="gap:16px"><span style="font-size:34px">🧭</span><div class="grow"><b style="font-size:20px">Тест на уровень · 10–15 минут</b>
+        <div class="muted" style="margin-top:4px">Сколько английских слов вы знаете и какой это уровень</div></div><span class="pill">Начать ›</span></a>`;
+  return `<div class="page">
+    ${demoBanner()}
+    <header class="head"><h1>Книжная полка${enName() ? ' · ' + esc(enName()) : ''}</h1><button class="btn ghost small" data-act="bug">Сообщить об ошибке</button></header>
+    ${level}
+    <section class="card stack" style="gap:8px"><b style="font-size:19px">Тексты на английском</b>
+      <div class="muted">Первые короткие тексты появятся здесь, когда будет известен уровень: слова подберём по нему, трудные можно будет нажать и увидеть перевод.</div></section>
+  </div>`;
+};
+EN_VIEWS.me = EN_VIEWS.home;
+['library', 'quests', 'collection', 'blitz', 'shelf', 'parent'].forEach(k => { EN_VIEWS[k] = EN_VIEWS.home; });
+
+EN_VIEWS.test = async () => {
+  if (placed() && levelDueIn() > 0 && !(UI.test && UI.test.phase === 'done')) { location.hash = '#/home'; return null; }
+  let V;
+  try { V = await content('vocab_test_en.json'); } catch (e) { toast('Не получилось загрузить тест', true); location.hash = '#/home'; return null; }
+  if (!UI.test || !UI.test.en) {
+    const round = num(S().vt_count, 0);
+    // Each new test takes other words of the same bands where it can.
+    UI.test = { en: true, phase: 'intro', V, band: 0, inBand: [], weak: 0, log: [], bands: [], q: null,
+      picks: V.bands.map((b, k) => { const o = seeded(b.items.map((_, i) => i), 'en' + k); return Array.from({ length: Math.min(EN_PER_BAND, o.length) }, (_, i) => o[(round * EN_PER_BAND + i) % o.length]); }) };
+  }
+  const T = UI.test;
+  const head = `<header class="head">${backBtn('home')}<h1>Тест на уровень</h1></header>`;
+  if (T.phase === 'intro') return `<div class="page white full">${head}
+    <div class="stack" style="gap:16px;font-size:18px;line-height:1.6;max-width:640px">
+      <p style="margin:0">Английское слово и короткий пример с ним. Выберите, что оно значит, из четырёх вариантов.</p>
+      <p style="margin:0">Слова идут от самых частых к более редким, по пять на ступень. Когда слова станут совсем незнакомыми, тест закончится сам.</p>
+      <p style="margin:0">Если не знаете слова, нажмите «Не знаю» — не угадывайте, иначе результат будет неточным.</p>
+      <button class="btn" data-act="testGo" style="align-self:flex-start">Начать</button></div></div>`;
+  if (T.phase === 'run') {
+    if (!T.q) {
+      const B = V.bands[T.band], it = B && B.items[T.picks[T.band][T.inBand.length]];
+      if (!it) { enFinish(); return null; }
+      const order = seeded(it.o.map((_, i) => i), 'en' + it.id + today());
+      T.q = { id: it.id, w: it.w, ex: it.ex, opts: order.map(k => it.o[k]), a: order.indexOf(it.a) };
+    }
+    const q = T.q;
+    return `<div class="page white full">${head}
+      <div class="small muted">Ступень ${T.band + 1} · слово ${T.inBand.length + 1} из ${EN_PER_BAND}</div>
+      <div style="text-align:center;padding:48px 0 32px"><div style="font-size:46px;font-weight:700" lang="en">${esc(q.w)}</div>
+        ${q.ex ? `<div style="font-size:20px;color:var(--ink2);margin-top:12px" lang="en">${esc(q.ex)}</div>` : ''}</div>
+      <div class="stack" style="gap:10px;max-width:560px;margin:0 auto;width:100%">
+        ${q.opts.map((o, j) => `<button class="opt" style="min-height:60px;font-size:19px" data-act="testPick" data-j="${j}">${esc(o)}</button>`).join('')}
+        <button class="btn ghost" style="min-height:56px;font-size:18px;margin-top:8px" data-act="testPick" data-j="-1">Не знаю</button></div></div>`;
+  }
+  const R = T.result, c = cefrOf(R.size);
+  return `<div class="page white full">${head}
+    <div class="darkcard stack" style="gap:12px"><span class="muted">Ваш уровень английского</span>
+      <div class="row" style="gap:14px;align-items:baseline"><div style="font-size:54px;font-weight:700;line-height:1">${c[1]}</div><div style="font-size:20px">${c[2]}</div></div>
+      <div class="muted">Словарный запас ≈ ${fmt(Math.round(R.size / 100) * 100)} слов · ${R.right} верных из ${R.n}</div>
+      <div style="line-height:1.5">${esc(CEFR_TEXT[c[1]])}</div></div>
+    <a class="btn" href="#/home" style="align-self:flex-start">Готово</a></div>`;
+};
+function enPick(j) {
+  const T = UI.test, q = T.q;
+  if (!q) return;
+  const ok = j === q.a;
+  T.log.push({ id: q.id, ok, band: T.band + 1 });
+  T.inBand.push(ok);
+  T.q = null;
+  if (T.inBand.length >= EN_PER_BAND) {
+    const right = T.inBand.filter(Boolean).length;
+    T.bands.push(right / EN_PER_BAND);
+    T.weak = right <= 1 ? T.weak + 1 : 0;
+    T.band++; T.inBand = [];
+    if (T.weak >= 2 || T.band >= T.V.bands.length) return enFinish();
+  }
+  render();
+}
+function enFinish() {
+  const T = UI.test;
+  const size = Math.round(T.bands.reduce((a, x) => a + x * 1000, 0));
+  const right = T.log.filter(x => x.ok).length;
+  T.result = { size, right, n: T.log.length };
+  T.phase = 'done';
+  const c = cefrOf(size)[1];
+  const hist = levelHistory().concat([{ d: today(), k: 'en', c, s: size, n: right, of: T.log.length, b: T.bands.map(x => Math.round(x * EN_PER_BAND)) }]);
+  save([], { placement_date: today(), vocab_size: size, cefr: c, vt_count: num(S().vt_count, 0) + 1, level_history: JSON.stringify(hist.slice(-12)) });
+  render();
+}
+
 // ------------------------------------------------- level signals (parent) ---
 
 /* What his reading shows about his vocabulary, for the parent only. It never changes the level.
@@ -1985,7 +2104,7 @@ const ACTS = {
   bzAgain: () => { UI.bz = null; render(); },
   // placement test
   testGo: () => { UI.test.phase = 'run'; render(); },
-  testPick: el => testPick(Number(el.dataset.j)),
+  testPick: el => (UI.test && UI.test.en ? enPick : testPick)(Number(el.dataset.j)),
   // quests, reviews
   claim: el => { save([ledger('quest', Number(el.dataset.r), el.dataset.ref)]); toast('+' + el.dataset.r + ' мин'); render(); },
   star: el => { UI.draftStars = Number(el.dataset.n); const t = $('#reviewText'); const keep = t ? t.value : ''; render(); const t2 = $('#reviewText'); if (t2) t2.value = keep; },

@@ -4,15 +4,17 @@
  * It starts with a few weeks of made-up history so every screen has something to show. Demo PIN: 1234. */
 
 const Mock = (() => {
-  const KEY = 'polka_mockdb3';
-  const DRIVE = '../drive/';
+  // ?demo=en: the English profile (an adult learning English), with its own demo data and drive/mum/ content.
+  const EN_DEMO = /[?&]demo=en(&|$)/.test(location.search);
+  const KEY = EN_DEMO ? 'polka_mockdb_en' : 'polka_mockdb3';
+  const DRIVE = EN_DEMO ? '../drive/mum/' : '../drive/';
   const DEFAULTS = {
     ratio: 0.5, final_pct: 50, blitz_reward: 1, ai_per_day: 0, ai_enabled: true, dob: '2015-09-01',
     lang_months: 112, lang_prog: 0.4, cur_book: 'kasht', locked: true, next_book: 'kur', shortlist: 'kur,timur,deti',
     best_blitz: 9, wpm: 150, wpm_updated: '', pin_hash: 'demo:1234', gemini_model: 'auto', ai_used_date: '', ai_used: 0,
-    placement_date: '', vocab_bands: '', vocab_size: 0, bingo_card: 1, placement_count: 0, level_history: '', vt_count: 0, vt_seen: '',
+    placement_date: '', vocab_bands: '', vocab_size: 0, bingo_card: 1, placement_count: 0, level_history: '', vt_count: 0, vt_seen: '', lang: 'ru', user_name: '', cefr: '',
   };
-  const CHILD_SETTINGS = ['next_book', 'shortlist', 'best_blitz', 'lang_months', 'lang_prog', 'cur_book', 'locked', 'placement_date', 'vocab_bands', 'vocab_size', 'bingo_card', 'placement_count', 'level_history', 'vt_count', 'vt_seen'];
+  const CHILD_SETTINGS = ['next_book', 'shortlist', 'best_blitz', 'lang_months', 'lang_prog', 'cur_book', 'locked', 'placement_date', 'vocab_bands', 'vocab_size', 'bingo_card', 'placement_count', 'level_history', 'vt_count', 'vt_seen', 'cefr'];
   const KEYS = { Progress: 'book_id', Checks: 'id', Words: 'key', Ledger: 'id' };
   const id = () => 'r' + Math.random().toString(36).slice(2, 9);
   const pad = n => String(n).padStart(2, '0');
@@ -22,6 +24,8 @@ const Mock = (() => {
 
   /** A few weeks of history: four short books read, «Каштанка» on chapter 3, a placement test done. */
   function seed() {
+    if (EN_DEMO) return { Settings: Object.assign({}, DEFAULTS, { lang: 'en', user_name: 'Мама', dob: '', cur_book: '', locked: false, next_book: '', shortlist: '', best_blitz: 0, lang_months: 0, lang_prog: 0 }),
+      Progress: [], Checks: [], Words: [], Ledger: [], Requests: [], Pages: [], AILog: [] };
     const S = Object.assign({}, DEFAULTS, { placement_date: day(-12), vocab_bands: JSON.stringify([1, 0.96, 0.86, 0.64, 0.4, 0.15]), vocab_size: 7900, placement_count: 1,
       level_history: JSON.stringify([{ d: day(-12), m: 112, t: 112, s: 7900 }]) });
     const done = [['chuk', -40, 5, 'Смешно, как они потеряли телеграмму и молчали. Тайга очень красивая.', '1:Приключения', 7500],
