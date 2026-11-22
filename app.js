@@ -16,7 +16,7 @@ const yes = v => v === true || v === 'true';
 const fmt = n => Number(n).toLocaleString('ru-RU');
 const IS_LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 
-const APP_VERSION = 34; // keep equal to the number in sw.js's CACHE name
+const APP_VERSION = 35; // keep equal to the number in sw.js's CACHE name
 
 // The English copy lives at /polka-en/ (outside this app's scope, so phones keep them as two apps)
 // and loads its code from /polka/. It keeps its own storage keys.
@@ -439,6 +439,7 @@ function render() {
   }
   const view = (EN() && (EN_VIEWS[r.name] || EN_VIEWS.home)) || VIEWS[r.name] || VIEWS.home;
   if (r.name !== 'read') leaveReader();
+  if (r.name !== 'mread') UI.m = null;
   // A parent's trial test is forgotten as soon as they leave it, so he never sees it.
   if (r.name !== 'test' && UI.test && UI.test.trial) { UI.test = null; UI.testTry = false; }
   const tabs = $('#tabs');
@@ -451,6 +452,7 @@ function render() {
 }
 function afterRender(r) {
   if (r.name === 'read') layoutReader(true);
+  if (r.name === 'mread') { mAttach(); mShow(); }
   hydrate();
 }
 window.addEventListener('hashchange', () => { closeSheet(); render(); window.scrollTo(0, 0); });
@@ -588,8 +590,16 @@ VIEWS.home = () => {
         <div class="bar green"><i style="width:${Math.round(qDone / q.length * 100)}%"></i></div>
         <div class="small muted">${nextQ ? esc(nextQ.text.split('.')[0]) + ' · +' + nextQ.r + ' мин' : 'Все задания выполнены'}</div></a>
     </div>
+    ${mangaOn() ? mangaTile() : ''}
   </div>`;
 };
+function mangaTile() {
+  if (!MANGA) { loadManga().then(() => { if (route().name === 'home') render(); }).catch(() => {}); }
+  const next = MANGA ? (MANGA.series || []).map(mangaNext).filter(Boolean)[0] : null;
+  const opened = mangaOpened();
+  return `<a class="tile light row" href="#/manga" style="gap:14px;flex-direction:row;align-items:center"><span style="font-size:28px">📖</span>
+    <div class="grow"><div class="t">Манга</div><div class="small muted">${opened ? 'Открыто глав: ' + opened + ' · ' : ''}${next ? 'следующая за ' + mangaPrice() + ' мин' : MANGA ? 'всё открыто' : 'награда за минуты'}</div></div><span class="pill">›</span></a>`;
+}
 
 // ----------------------------------------------------------- library ---
 
@@ -1867,6 +1877,128 @@ function signalsHtml() {
 
 // ----------------------------------------------------------- parent ---
 
+// ------------------------------------------------------------- manga ---
+/* Manga as prizes: chapters are opened with earned minutes, in order, and stay open. An opened chapter is a
+   Ledger row (kind 'manga', ref '<volume>:<chapter>', minus the price), so no extra table is needed.
+   Volumes are prepared on the computer by private/prep/prep_manga.py (pages in Drive's «Манга», index in manga.json). */
+let MANGA = null;
+function mangaOn() { return yes(S().manga_on) && !EN(); }
+async function loadManga() { MANGA = await content('manga.json'); return MANGA; }
+function mangaPrice() { return Math.max(0, num(S().manga_price, 15)); }
+const mangaKey = (v, c) => v.id + ':' + c.n;
+function mangaUnlocked(key) { return (D.ledger || []).some(l => l.kind === 'manga' && l.ref === key); }
+function mangaOpened() { return (D.ledger || []).filter(l => l.kind === 'manga').length; }
+function mangaFlat(s) { const out = []; s.volumes.forEach(v => v.chapters.forEach((c, i) => out.push({ s, v, c, i, key: mangaKey(v, c) }))); return out; }
+function mangaAll() { return MANGA ? (MANGA.series || []).reduce((a, s) => a.concat(mangaFlat(s)), []) : []; }
+function mangaFind(key) { return mangaAll().find(x => x.key === key); }
+function mangaNext(s) { return mangaFlat(s).find(x => !mangaUnlocked(x.key)); }
+function spendable() { const p = pendingReq(); return balance() - (p ? num(p.mins, 0) : 0); }
+function chName(c) { return c.part ? 'Часть ' + c.n : 'Глава ' + c.n + (c.title ? ' · ' + c.title : ''); }
+
+VIEWS.manga = async () => {
+  if (!mangaOn()) { location.hash = '#/home'; return null; }
+  try { await loadManga(); } catch (e) {
+    return `<div class="page full"><header class="head">${backBtn('home')}<h1>Манга</h1></header><div class="empty">Манга скоро появится.</div></div>`;
+  }
+  const price = mangaPrice(), avail = spendable(), read = store.get('mread', {});
+  const row = x => {
+    const open = mangaUnlocked(x.key), n = x.c.end - x.c.start;
+    if (open) return `<a class="mch" href="#/mread/${esc(x.v.id)}/${x.i}"><span class="grow">${esc(chName(x.c))}</span><span class="small muted">${n} стр.</span>${read[x.key] ? '<span class="pill green">✓ прочитана</span>' : '<span class="pill">Читать ›</span>'}</a>`;
+    const next = mangaNext(x.s);
+    if (next && next.key === x.key) return `<div class="mch next"><span class="grow">${esc(chName(x.c))}</span><span class="small muted">${n} стр.</span><button class="btn small" data-act="mangaOpen" data-k="${esc(x.key)}" ${avail < price ? 'disabled' : ''}>Открыть · ${price} мин</button></div>`;
+    return `<div class="mch locked"><span class="grow">${esc(chName(x.c))}</span>${ICON.lock}</div>`;
+  };
+  const series = (MANGA.series || []).map(s => `<section class="stack" style="gap:14px"><h2 style="margin:0">${esc(s.title)}</h2>
+    ${s.volumes.map(v => `<div class="mvol">${asset(v.cover, 'class="mcover"')}<div class="grow stack" style="gap:8px"><b>Том ${v.n}${v.title ? ' · ' + esc(v.title) : ''}</b>
+      ${mangaFlat(s).filter(x => x.v === v).map(row).join('')}</div></div>`).join('')}</section>`).join('');
+  return `<div class="page full"><header class="head">${backBtn('home')}<h1>Манга</h1>
+      <div class="coin">${ICON.coin}<b>${balance()}</b><span class="muted">мин</span></div></header>
+    <div class="small muted">Глава открывается за ${price} мин из заработанных и остаётся открытой. Главы идут по порядку.</div>
+    ${series || '<div class="empty">Манга скоро появится.</div>'}</div>`;
+};
+
+VIEWS.mread = async r => {
+  if (!mangaOn()) { location.hash = '#/home'; return null; }
+  try { await loadManga(); } catch (e) { location.hash = '#/manga'; return null; }
+  const x = mangaAll().find(y => y.v.id === r.a && y.i === num(r.b, 0));
+  if (!x || !mangaUnlocked(x.key)) { location.hash = '#/manga'; return null; }
+  const n = x.c.end - x.c.start;
+  UI.m = Object.assign({}, x, { n, p: Math.min(num((store.get('mpos', {}) || {})[x.key], 0), n - 1), zoom: false });
+  return `<div class="mreader" id="mr">
+    <div class="mtop"><a class="icon-btn" href="#/manga" aria-label="Назад">${ICON.back}</a>
+      <b class="grow" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(x.s.title)} · ${esc(chName(x.c))}</b>
+      <span class="small" id="mcount"></span>
+      <button class="icon-btn" data-act="mzoom" aria-label="Увеличить"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4M11 8v6M8 11h6"/></svg></button></div>
+    <div class="mstage" id="mstage"></div>
+    <div id="mpre" hidden></div>
+    <div class="mhint small">${x.s.rtl ? 'Читается справа налево: следующая страница — нажми слева' : 'Следующая страница — нажми справа'}</div>
+  </div>`;
+};
+
+function mShow() {
+  const m = UI.m, stage = $('#mstage');
+  if (!m || !stage) return;
+  stage.classList.toggle('zoomed', m.zoom);
+  if (m.p >= m.n) {
+    // End of the chapter: what next.
+    const all = mangaFlat(m.s), k = all.findIndex(y => y.key === m.key), nx = all[k + 1];
+    const price = mangaPrice();
+    const next = !nx ? '<div class="muted">Это последняя глава, которая есть. Новые тома появятся позже.</div>'
+      : mangaUnlocked(nx.key) ? `<a class="btn" href="#/mread/${esc(nx.v.id)}/${nx.i}">${esc(chName(nx.c))} ›</a>`
+      : `<button class="btn" data-act="mangaOpen" data-k="${esc(nx.key)}" ${spendable() < price ? 'disabled' : ''}>Открыть ${esc(chName(nx.c))} · ${price} мин</button>`;
+    stage.innerHTML = `<div class="mend stack"><b style="font-size:26px">Глава прочитана</b>${next}<a class="btn ghost" href="#/manga" style="color:#FFFFFF;border-color:#2B3344">Ко всей манге</a></div>`;
+    $('#mcount').textContent = '';
+    return;
+  }
+  const pg = m.v.pages[m.c.start + m.p];
+  stage.innerHTML = `<img data-asset="${esc(pg.f)}" alt="Страница ${m.p + 1}" class="${m.zoom ? 'z' : ''}" style="aspect-ratio:${pg.w}/${pg.h}">`;
+  $('#mcount').textContent = (m.p + 1) + ' / ' + m.n;
+  // The next few pages load in the background, so turning is instant.
+  $('#mpre').innerHTML = [1, 2, 3].map(k => m.p + k < m.n ? m.v.pages[m.c.start + m.p + k] : null).filter(Boolean)
+    .map(q => `<img data-asset="${esc(q.f)}" alt="">`).join('');
+  const pos = store.get('mpos', {}) || {};
+  pos[m.key] = m.p;
+  store.set('mpos', pos);
+  if (m.p === m.n - 1) { const rd = store.get('mread', {}) || {}; if (!rd[m.key]) { rd[m.key] = today(); store.set('mread', rd); } }
+  hydrate();
+}
+function mTurn(d) {
+  const m = UI.m;
+  if (!m) return;
+  const p = Math.max(0, Math.min(m.n, m.p + d));
+  if (p === m.p) return;
+  m.p = p; m.zoom = false;
+  mShow();
+  $('#mstage').scrollTo(0, 0);
+}
+function mAttach() {
+  const stage = $('#mstage');
+  if (!stage || stage.dataset.on) return;
+  stage.dataset.on = '1';
+  const fwd = () => (UI.m && UI.m.s.rtl ? -1 : 1); // which screen side is "back"
+  stage.addEventListener('click', e => {
+    if (!UI.m || UI.m.zoom || e.target.closest('a,button')) return;
+    const x = e.clientX / window.innerWidth;
+    if (x < 0.35) mTurn(-fwd());
+    else if (x > 0.65) mTurn(fwd());
+  });
+  let x0 = null, y0 = null;
+  stage.addEventListener('touchstart', e => { x0 = e.touches.length === 1 ? e.touches[0].clientX : null; y0 = x0 == null ? null : e.touches[0].clientY; }, { passive: true });
+  stage.addEventListener('touchend', e => {
+    if (x0 == null || !UI.m || UI.m.zoom) return;
+    const dx = e.changedTouches[0].clientX - x0, dy = e.changedTouches[0].clientY - y0;
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) mTurn(dx < 0 ? fwd() : -fwd());
+    x0 = null;
+  }, { passive: true });
+}
+document.addEventListener('keydown', e => {
+  if (!UI.m || route().name !== 'mread' || /input|textarea/i.test(e.target.tagName)) return;
+  const f = UI.m.s.rtl ? -1 : 1;
+  if (e.key === 'ArrowRight') mTurn(f);
+  if (e.key === 'ArrowLeft') mTurn(-f);
+  if (e.key === ' ') mTurn(1);
+});
+
 VIEWS.parent = () => {
   if (!UI.parentOk) { setTimeout(() => openPin(), 0); return VIEWS.me(); }
   const s = S();
@@ -1913,6 +2045,8 @@ VIEWS.parent = () => {
       ${step('Вся книга (финальная проверка)', 'final_pct', 10, 0, 200, v => '+' + v + '% от глав')}
       ${step('Раунд Блица (за 20+ верных вдвое)', 'blitz_reward', 1, 0, 10, v => v + ' мин')}
       <div class="grid4" style="grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin-top:14px">${[[-2, 'на 2+ года проще'], [-1, 'на год проще'], [0, 'его уровень'], [1, 'на год сложнее'], [2, 'на 2 года сложнее (предел)']].map(([d, l]) => `<div class="fact" style="text-align:center"><b>×${ru(MULT[String(d)])}</b><span class="tiny muted">${l}</span></div>`).join('')}</div>
+      <div class="stepper"><span class="grow">Манга за минуты</span><button class="btn small ${yes(s.manga_on) ? 'ghost' : ''}" data-act="toggleManga" style="width:auto">${yes(s.manga_on) ? 'Выключить' : 'Включить'}</button></div>
+      ${yes(s.manga_on) ? step('Цена одной главы манги', 'manga_price', 5, 5, 120, v => v + ' мин') : ''}
       <div class="row" style="margin-top:14px"><span class="grow">Поправить баланс</span><button class="btn ghost small" data-act="adjust" data-m="-5">−5 мин</button><button class="btn ghost small" data-act="adjust" data-m="5">+5 мин</button></div>
     </section>
     <section class="stack" style="padding-top:18px;border-top:1px solid var(--line);gap:0"><h2 style="margin:0 0 6px">Вопросы к ИИ</h2>
@@ -2158,6 +2292,25 @@ const ACTS = {
   decide: el => parentCall({ op: 'decide', id: el.dataset.id, approve: el.dataset.ok === '1' }, el.dataset.ok === '1' ? 'Одобрено. Теперь одобрите в «Экранном времени».' : 'Отклонено'),
   toggleLock: () => setNow({ locked: !yes(S().locked) }),
   toggleAi: () => setNow({ ai_enabled: !aiOn() }),
+  toggleManga: () => setNow({ manga_on: !yes(S().manga_on) }),
+  mangaOpen: el => {
+    const x = mangaFind(el.dataset.k), price = mangaPrice();
+    if (!x) return;
+    if (spendable() < price) return toast('Не хватает минут', true);
+    openSheet(`<h3>Открыть: ${esc(chName(x.c))}?</h3><div class="muted">${esc(x.s.title)}, том ${x.v.n}. Спишется ${price} мин из ${balance()}. Глава останется открытой.</div>
+      <div class="row" style="justify-content:flex-end;gap:10px"><button class="btn ghost" data-act="closeSheet">Отмена</button><button class="btn" data-act="mangaBuy" data-k="${esc(x.key)}">Открыть</button></div>`, true);
+  },
+  mangaBuy: el => {
+    const x = mangaFind(el.dataset.k), price = mangaPrice();
+    closeSheet();
+    if (!x) return;
+    if (!mangaUnlocked(x.key)) {
+      if (spendable() < price) return toast('Не хватает минут', true);
+      save([ledger('manga', -price, x.key, x.s.title + ', том ' + x.v.n + ', ' + chName(x.c))]);
+    }
+    location.hash = '#/mread/' + x.v.id + '/' + x.i;
+  },
+  mzoom: () => { if (!UI.m) return; UI.m.zoom = !UI.m.zoom; mShow(); },
   // Makes the next level check due now (with a version he hasn't seen), instead of waiting 3 months.
   // The parent tries the test: nothing is saved and his words stay unseen.
   vtTry: () => { UI.test = null; UI.testTry = true; location.hash = '#/test'; },

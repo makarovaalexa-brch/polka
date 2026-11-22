@@ -12,6 +12,7 @@ const Mock = (() => {
   const DEFAULTS = {
     ratio: 0.5, final_pct: 50, blitz_reward: 1, ai_per_day: 0, ai_enabled: true, dob: '2015-09-01',
     lang_months: 112, lang_prog: 0.4, cur_book: 'kasht', locked: true, next_book: 'kur', shortlist: 'kur,timur,deti',
+    manga_on: true, manga_price: 15,
     best_blitz: 9, wpm: 150, wpm_updated: '', pin_hash: 'demo:1234', gemini_model: 'auto', ai_used_date: '', ai_used: 0,
     placement_date: '', vocab_bands: '', vocab_size: 0, bingo_card: 1, placement_count: 0, level_history: '', vt_count: 0, vt_seen: '', lang: 'ru', user_name: '', cefr: '',
   };
@@ -141,13 +142,14 @@ const Mock = (() => {
       throw new Error('Unknown parent action');
     },
     content: async (d, req) => {
-      const res = await fetch(DRIVE + req.name, { cache: 'no-cache' });
+      // Demo manga: made from made-up test volumes by prep_manga.py --profile manga_demo --no-upload.
+      const res = await fetch(DRIVE + (req.name === 'manga.json' ? 'manga_demo/' : '') + req.name, { cache: 'no-cache' });
       if (!res.ok) throw new Error('Not found in Drive: ' + req.name);
       return res.json();
     },
     assets: (d, req) => {
       const out = {};
-      (req.names || []).forEach(n => { out[n] = DRIVE + 'img/' + n; });
+      (req.names || []).forEach(n => { out[n] = DRIVE + (/^m_/.test(n) ? 'manga_demo/manga/' : 'img/') + n; });
       return out;
     },
     ask: (d, req) => {
