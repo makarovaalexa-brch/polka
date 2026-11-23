@@ -16,7 +16,7 @@ const yes = v => v === true || v === 'true';
 const fmt = n => Number(n).toLocaleString(EN() ? 'en-GB' : 'ru-RU');
 const IS_LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 
-const APP_VERSION = 42; // keep equal to the number in sw.js's CACHE name
+const APP_VERSION = 43; // keep equal to the number in sw.js's CACHE name
 
 // The English copy lives at /polka-en/ (outside this app's scope, so phones keep them as two apps)
 // and loads its code from /polka/. It keeps its own storage keys.
@@ -177,7 +177,7 @@ useCatalog(store.get('catalog', {}));
 /* Content files (books, placement test) and pictures are kept in the browser's cache storage after the
    first download, so a book that has been opened once reads without wifi. */
 const CACHE_NAME = 'polka-content-v1';
-const cacheKey = name => location.origin + '/__content/' + name;
+const cacheKey = name => location.origin + '/__content/' + (EN_HOME ? 'en/' : '') + name; // the two apps share one origin
 // Cache storage can be missing or stall (private browsing, some test browsers): give up after a moment.
 let cacheOk = typeof caches !== 'undefined';
 const within = (p, ms) => Promise.race([p, new Promise((_, no) => setTimeout(() => no(new Error('slow')), ms))]);
@@ -247,6 +247,21 @@ async function load() {
   if (!connected() && !IS_LOCAL) { render(); return; }
   try {
     const [fresh, cat] = await Promise.all([api('bootstrap', {}), api('content', { name: 'catalog.json' })]);
+    // This copy is connected to the other profile's back end (an invite link opened in the wrong app):
+    // hand the connection to the app it belongs to and ask for this app's own link.
+    const isEn = (fresh.settings || {}).lang === 'en';
+    if (isEn !== EN_HOME && connected()) { // (demo mode has no connection)
+      try {
+        const other = EN_HOME ? 'polka_' : 'polka_en_';
+        if (!localStorage.getItem(other + 'cfg')) localStorage.setItem(other + 'cfg', localStorage.getItem(NS + 'cfg'));
+        ['cfg', 'cache', 'catalog', 'outbox'].forEach(k => localStorage.removeItem(NS + k));
+      } catch (e) { /* ignore */ }
+      D = null;
+      $('#view').innerHTML = '<div class="page"><div class="card stack">' + (EN_HOME
+        ? '<b>This app was connected to Andrei’s bookshelf.</b><span>Please open Larisa’s invite link again.</span>'
+        : '<b>Это приложение было подключено к английскому профилю (Ларисы).</b><span>Открой ссылку-приглашение Андрея ещё раз — и всё вернётся.</span>') + '</div></div>';
+      return;
+    }
     useCatalog(cat);
     store.set('catalog', cat);
     // A parent reset his record: forget this device's own activity and unsent changes too.
