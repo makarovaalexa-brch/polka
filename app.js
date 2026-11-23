@@ -16,7 +16,7 @@ const yes = v => v === true || v === 'true';
 const fmt = n => Number(n).toLocaleString(EN() ? 'en-GB' : 'ru-RU');
 const IS_LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 
-const APP_VERSION = 41; // keep equal to the number in sw.js's CACHE name
+const APP_VERSION = 42; // keep equal to the number in sw.js's CACHE name
 
 // The English copy lives at /polka-en/ (outside this app's scope, so phones keep them as two apps)
 // and loads its code from /polka/. It keeps its own storage keys.
@@ -491,7 +491,7 @@ const INFO_EN = {
   mult: 'Stories are sorted by level: Easier (A2), Medium (A2+) and Harder (B1 and up). Every story pays coins for reading it and for finishing it.',
   level: 'Your level on the European scale (A1 to C2), from your vocabulary test. It grows as you finish stories and learn new words. Every three months there is a level check. Your level never goes down.',
   ranks: 'Your title counts the words you read in the last 3 months. If you stop reading it can go down, and it comes back up when you return to your stories.',
-  bingo: 'Every story you finish stamps one matching square. A row, a column or a diagonal pays +10 coins, the whole card +30 coins. Then you can start a new card with different squares.',
+  bingo: 'Every story you finish stamps one matching square. A full row pays +10 coins, the whole card +30 coins. Then you can start a new card with different squares.',
   blitz: 'Up to 20 questions in 2 minutes, with words from your stories: the underlined ones and the ones you tapped. A word is learned after three right answers on different days: its meaning, the word in a sentence, the word from its meaning. A wrong answer and the word starts again, and it comes back later in the same round. After three answers the word rests for a month, then one more check.',
   quiz: 'A few questions about the story and two about the underlined words. You need 3 out of 5 right. If it does not go well, read the story again and try once more: the questions will be different.',
   final: 'The final check is about the whole story.',
@@ -635,8 +635,19 @@ function mangaTile() {
 
 // ----------------------------------------------------------- library ---
 
+/** Her library: no filters while it is small; later a few themes, only ones that really narrow the list. */
+function enFilters() {
+  const NAMES = { Love: 'Love', 'Later life': 'Later life', Gossip: 'Gossip', Sea: 'By the sea', Letters: 'Letters', Wedding: 'Weddings', Music: 'Music', Food: 'Food', Secret: 'Secrets', Friendship: 'Friends' };
+  const unread = Object.keys(BOOKS).filter(id => !isDone(id)).map(id => BOOKS[id]);
+  UI.len = 'all'; // her stories are all short: no length filter
+  if (unread.length < 8) { UI.genre = 'all'; return []; }
+  const n = t => unread.filter(b => has(b.themes, t)).length;
+  const themes = Object.keys(NAMES).filter(t => n(t) >= 2 && n(t) < unread.length).sort((a, b) => n(b) - n(a)).slice(0, 5);
+  if (UI.genre !== 'all' && themes.indexOf(UI.genre) < 0) UI.genre = 'all';
+  return [['all', 'All']].concat(themes.map(t => [t, NAMES[t]]));
+}
 VIEWS.library = () => {
-  const GENRES = EN() ? [['all', 'All'], ['Love', 'Love'], ['Later life', 'Later life'], ['Gossip', 'Gossip'], ['Sea', 'By the sea'], ['Letters', 'Letters'], ['Wedding', 'Weddings'], ['Music', 'Music']] : [['all', 'Все'], ['Сказка', 'Сказки'], ['Рассказ', 'Рассказы'], ['Повесть', 'Повести'], ['Роман', 'Романы'], ['Приключения', 'Приключения'], ['Детектив', 'Детективы'], ['Фантастика', 'Фантастика'], ['Юмор', 'Смешное'], ['Война', 'Про войну'], ['Про животных', 'Про животных'], ['Стихи', 'Стихи'], ['Нон-фикшн', 'Нон-фикшн']];
+  const GENRES = EN() ? enFilters() : [['all', 'Все'], ['Сказка', 'Сказки'], ['Рассказ', 'Рассказы'], ['Повесть', 'Повести'], ['Роман', 'Романы'], ['Приключения', 'Приключения'], ['Детектив', 'Детективы'], ['Фантастика', 'Фантастика'], ['Юмор', 'Смешное'], ['Война', 'Про войну'], ['Про животных', 'Про животных'], ['Стихи', 'Стихи'], ['Нон-фикшн', 'Нон-фикшн']];
   const LENS = EN() ? [['all', 'Any length'], ['short', 'Short'], ['mid', 'Medium'], ['long', 'Long']] : [['all', 'Любой длины'], ['short', 'Короткие'], ['mid', 'Средние'], ['long', 'Длинные']];
   const lenOf = b => (EN() ? (b.words < 1500 ? 'short' : b.words < 6000 ? 'mid' : 'long') : b.words < 8000 ? 'short' : b.words < 25000 ? 'mid' : 'long');
   const match = b => (UI.genre === 'all' || b.genre === UI.genre || has(b.themes, UI.genre)) && (UI.len === 'all' || lenOf(b) === UI.len);
@@ -649,7 +660,7 @@ VIEWS.library = () => {
       <a class="main" href="#/book/${id}">
         <b style="font-size:16px;line-height:1.25">${esc(b.short)}</b>
         <span class="small muted">${esc(authorOf(b).short)} · ${EN() ? esc(b.level || '') : b.year}</span>
-        <span class="tiny muted">${[b.genre].concat(b.themes || []).map(esc).join(' · ')}</span>
+        <span class="tiny muted">${(EN() ? (b.themes || []).slice(0, 3) : [b.genre].concat(b.themes || [])).map(esc).join(' · ')}</span>
         <span class="row wrap" style="gap:6px;margin-top:2px">${levelChip(b)}<span class="tiny" style="color:var(--ink2)">${pagesText(b)} · ${readHours(b).replace('≈ ', '')}</span>${b.ready ? '' : '<span class="soon">' + L('скоро', 'soon') + '</span>'}</span>
       </a>
       ${cur ? '<span class="heart" style="display:flex;align-items:center;justify-content:center">📖</span>'
@@ -668,8 +679,8 @@ VIEWS.library = () => {
   }).join('');
   return `<div class="page">
     <header class="head"><h1>${L('Библиотека', 'Library')}</h1>${info('mult')}</header>
-    <div class="row wrap" style="gap:8px">${GENRES.map(([k, l]) => `<button class="chip ${UI.genre === k ? 'on' : ''}" data-act="genre" data-k="${k}">${l}</button>`).join('')}</div>
-    <div class="row wrap" style="gap:8px">${LENS.map(([k, l]) => `<button class="chip ${UI.len === k ? 'on' : ''}" data-act="len" data-k="${k}">${l}</button>`).join('')}</div>
+    ${GENRES.length > 1 ? `<div class="row wrap" style="gap:8px">${GENRES.map(([k, l]) => `<button class="chip ${UI.genre === k ? 'on' : ''}" data-act="genre" data-k="${k}">${l}</button>`).join('')}</div>` : ''}
+    ${EN() ? '' : `<div class="row wrap" style="gap:8px">${LENS.map(([k, l]) => `<button class="chip ${UI.len === k ? 'on' : ''}" data-act="len" data-k="${k}">${l}</button>`).join('')}</div>`}
     ${groups || '<div class="empty">' + L('Таких книг пока нет', 'No stories like this yet') + '</div>'}
   </div>`;
 };
@@ -1454,7 +1465,10 @@ function bingoCard(n) {
   const unread = Object.keys(BOOKS).filter(id => !isDone(id)).map(id => BOOKS[id]);
   const ctxAny = { above: true, above2: true, newAuthor: true, sameAuthor: true, fast: true };
   const usable = Object.keys(BINGO_POOL).filter(k => unread.some(b => BINGO_POOL[k](b, ctxAny)));
-  return seeded(usable, 'bingo' + n).slice(0, 16);
+  const size = BINGO_COLS * BINGO_ROWS, pick = seeded(usable, 'bingo' + n).slice(0, size);
+  // Her small library may not fill a card: top up with squares about how she reads (always possible).
+  if (EN() && pick.length < size) seeded(['Read within a week', 'New author for you', 'Same author again', 'Happy ending'], 'pad' + n).forEach(k => { if (pick.length < size && pick.indexOf(k) < 0) pick.push(k); });
+  return pick;
 }
 function bingoState(n) {
   n = n || num(S().bingo_card, 1);
@@ -1465,10 +1479,12 @@ function bingoState(n) {
     if (c && !c.book) c.book = p.book_id;
   });
   const lines = [];
-  for (let i = 0; i < 4; i++) { lines.push([0, 1, 2, 3].map(k => i * 4 + k)); lines.push([0, 1, 2, 3].map(k => k * 4 + i)); }
-  lines.push([0, 5, 10, 15], [3, 6, 9, 12]);
+  if (BINGO_COLS === 4 && BINGO_ROWS === 4) {
+    for (let i = 0; i < 4; i++) { lines.push([0, 1, 2, 3].map(k => i * 4 + k)); lines.push([0, 1, 2, 3].map(k => k * 4 + i)); }
+    lines.push([0, 5, 10, 15], [3, 6, 9, 12]);
+  } else for (let i = 0; i < BINGO_ROWS; i++) lines.push(Array.from({ length: BINGO_COLS }, (_, k) => i * BINGO_COLS + k)); // smaller card: rows only
   const full = lines.map((l, i) => ({ i, l })).filter(x => x.l.every(k => cells[k] && cells[k].book));
-  return { n, cells, full, complete: cells.length === 16 && cells.every(c => c.book) };
+  return { n, cells, full, complete: cells.length === BINGO_COLS * BINGO_ROWS && cells.every(c => c.book) };
 }
 function bingoCtx(b, p) {
   const others = doneIds().map(id => BOOKS[id]).filter(x => x && x !== b);
@@ -1533,7 +1549,7 @@ function shelfCard(p, from) {
 }
 function bingoGrid(st) {
   const inLine = new Set([].concat(...st.full.map(x => x.l)));
-  return '<div class="bingo">' + st.cells.map((c, i) => {
+  return '<div class="bingo" style="grid-template-columns:repeat(' + BINGO_COLS + ',minmax(0,1fr))">' + st.cells.map((c, i) => {
     if (!c.book) return `<div class="bcell"><div class="lbl">${esc(c.label)}</div></div>`;
     const b = BOOKS[c.book] || { short: c.book, color: '#5B6475' };
     return `<div class="bcell on ${inLine.has(i) ? 'line' : ''}">${b.cover ? asset(b.cover) : `<div class="mini" style="background:${b.color}"></div>`}
@@ -1550,7 +1566,7 @@ VIEWS.collection = () => {
     <header class="head"><h1>${L('Коллекция', 'Collection')}</h1></header>
     <section class="stack"><div class="row"><h2 class="grow" style="margin:0">${L('Прочитано', 'Read')} · ${done.length}</h2>${done.length > 4 ? '<a class="pill" href="#/shelf">' + L('Все ›', 'All ›') + '</a>' : ''}</div>
       ${done.length ? `<div class="grid4">${done.slice(0, 4).map(p => shelfCard(p, 'collection')).join('')}</div>` : '<div class="empty">' + L('Здесь появятся книги, которые ты дочитаешь.', 'Stories you finish will appear here.') + '</div>'}</section>
-    <section class="card stack"><div class="row"><h2 style="margin:0">${L('Книжное бинго · карточка ', 'Story bingo · card ')}${n}</h2>${info('bingo')}<span class="muted" style="margin-left:auto">${st.cells.filter(c => c.book).length}${L(' из 16', ' of 16')}</span></div>
+    <section class="card stack"><div class="row"><h2 style="margin:0">${L('Книжное бинго · карточка ', 'Story bingo · card ')}${n}</h2>${info('bingo')}<span class="muted" style="margin-left:auto">${st.cells.filter(c => c.book).length}${L(' из ', ' of ')}${st.cells.length}</span></div>
       ${st.complete ? `<div class="row" style="padding:14px 16px;border-radius:12px;background:var(--green-soft)"><b class="grow">${L('Карточка заполнена! 🎉', 'Card complete! 🎉')}</b><button class="btn small" data-act="newCard">${L('Начать карточку ', 'Start card ')}${n + 1}</button></div>` : ''}
       ${bingoGrid(st)}
       ${n > 1 ? `<div class="row wrap small muted" style="gap:8px">${L('Заполненные: ', 'Completed: ')}${Array.from({ length: n - 1 }, (_, i) => `<a class="pill" href="#/card/${i + 1}">${L('Карточка ', 'Card ')}${i + 1} ✓</a>`).join('')}</div>` : ''}</section>

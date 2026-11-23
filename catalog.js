@@ -20,6 +20,7 @@ let RANKS = [
    A line pays +10 min, a full card +30 min, and then he starts the next card when he wants.
    Card 1 is fixed; later cards draw 16 squares from the pool, only ones some unread book can fill.
    ctx: above (book above his level), above2 (2 years above), newAuthor, sameAuthor, fast (read within a week). */
+let BINGO_COLS = 4, BINGO_ROWS = 4; // her card is smaller (useEnglishRules)
 let BINGO_POOL = {
   'Рассказ': b => b.genre === 'Рассказ',
   'Повесть': b => b.genre === 'Повесть',
@@ -142,8 +143,8 @@ const BINGO_POOL_EN = {
   'New author for you': (b, c) => c.newAuthor,
   'Same author again': (b, c) => c.sameAuthor,
 };
-const BINGO_FIRST_EN = ['Love story', 'Later in life', 'Gossip', 'By the sea', 'Letters', 'A wedding', 'Music', 'Food and baking',
-  'A secret', 'Easier (A2)', 'Medium (A2+)', 'Harder (B1)', 'Over 1,000 words', 'Read within a week', 'New author for you', 'Happy ending'];
+// 3 x 2: a theme, some gossip, a secret; then a setting, a step up, and a pace square.
+const BINGO_FIRST_EN = ['Love story', 'Gossip', 'A secret', 'By the sea', 'Harder (B1)', 'Read within a week'];
 const ACHIEVEMENTS_EN = [
   ['💌', 'Romantic', c => c.count(b => has(b.themes, 'Love')), [1, 5, 10], ['love story', 'love stories']],
   ['☕', 'Gossip queen', c => c.count(b => has(b.themes, 'Gossip')), [1, 3, 5], ['gossip story', 'gossip stories']],
@@ -187,5 +188,6 @@ const WEEKLY_QUESTS_EN = [
 function useEnglishRules() {
   if (RANKS === RANKS_EN) return;
   RANKS = RANKS_EN; BINGO_POOL = BINGO_POOL_EN; BINGO_FIRST = BINGO_FIRST_EN; ACHIEVEMENTS = ACHIEVEMENTS_EN;
+  BINGO_COLS = 3; BINGO_ROWS = 2;
   DAILY_QUESTS = DAILY_QUESTS_EN; WEEKLY_QUESTS = WEEKLY_QUESTS_EN;
 }
