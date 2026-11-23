@@ -16,7 +16,7 @@ const yes = v => v === true || v === 'true';
 const fmt = n => Number(n).toLocaleString(EN() ? 'en-GB' : 'ru-RU');
 const IS_LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 
-const APP_VERSION = 44; // keep equal to the number in sw.js's CACHE name
+const APP_VERSION = 45; // keep equal to the number in sw.js's CACHE name
 
 // The English copy lives at /polka-en/ (outside this app's scope, so phones keep them as two apps)
 // and loads its code from /polka/. It keeps its own storage keys.
@@ -240,6 +240,42 @@ async function hydrate() {
     }
     fill();
   }
+}
+/** Gets every picture in names ready to show (cached, or from Drive 6 per call, 3 calls at a time) and decoded,
+ *  calling progress(done, total) as they arrive. Resolves to true when all are ready. */
+async function fetchAssets(names, progress) {
+  names = [...new Set(names)];
+  let done = 0;
+  const tick = () => { done++; if (progress) progress(done, names.length); };
+  const decode = url => new Promise(res => { const im = new Image(); im.onload = im.onerror = () => res(); im.src = url; if (im.decode) im.decode().then(res, res); });
+  const missing = [];
+  for (const name of names) {
+    if (!ASSETS[name]) { const r = await cacheGet('img/' + name); if (r) ASSETS[name] = URL.createObjectURL(await r.blob()); }
+    if (ASSETS[name]) { await decode(ASSETS[name]); tick(); } else missing.push(name);
+  }
+  const batches = [];
+  for (let k = 0; k < missing.length; k += 6) batches.push(missing.slice(k, k + 6));
+  let ok = true;
+  const worker = async () => {
+    while (batches.length) {
+      const b = batches.shift();
+      let got;
+      try { got = await api('assets', { names: b }, 60000); } catch (e) { ok = false; return; }
+      for (const name of b) {
+        const v = got[name];
+        if (!v) { ok = false; continue; }
+        if (/^data:/.test(v)) {
+          const blob = await (await fetch(v)).blob();
+          cachePut('img/' + name, new Response(blob));
+          ASSETS[name] = URL.createObjectURL(blob);
+        } else ASSETS[name] = v; // demo mode: a plain file URL
+        await decode(ASSETS[name]);
+        tick();
+      }
+    }
+  };
+  await Promise.all([worker(), worker(), worker()]);
+  return ok;
 }
 const asset = (name, attrs) => name ? '<img data-asset="' + esc(name) + '" alt="" ' + (attrs || '') + '>' : '';
 
@@ -2044,47 +2080,72 @@ VIEWS.mread = async r => {
   if (!mangaOn()) { location.hash = '#/home'; return null; }
   try { await loadManga(); } catch (e) { location.hash = '#/manga'; return null; }
   const vx = mangaVol(r.a), i = num(r.b, 0);
-  if (!vx || !mangaUnlocked(vx.v.id) || !vx.v.chapters[i]) { location.hash = '#/manga'; return null; }
+  // ?preview=1: a parent looking at any volume from Family settings. Nothing is opened, paid or marked as read.
+  const preview = r.q.get('preview') === '1' && UI.parentOk;
+  if (!vx || !vx.v.chapters[i] || (!preview && !mangaUnlocked(vx.v.id))) { location.hash = preview || UI.parentOk ? '#/parent' : '#/manga'; return null; }
   const x = mangaFlat(vx.s).find(y => y.v === vx.v && y.i === i);
   const n = x.c.end - x.c.start;
-  UI.m = Object.assign({}, x, { n, p: Math.min(num((store.get('mpos', {}) || {})[x.key], 0), n - 1), zoom: false });
+  UI.m = Object.assign({}, x, { n, p: preview ? 0 : Math.min(num((store.get('mpos', {}) || {})[x.key], 0), n - 1), zoom: false, preview, ready: false, got: 0 });
   return `<div class="mreader" id="mr">
-    <div class="mtop"><a class="icon-btn" href="#/manga" aria-label="Назад">${ICON.back}</a>
+    <div class="mtop"><a class="icon-btn" href="${preview ? '#/parent' : '#/manga'}" aria-label="Назад">${ICON.back}</a>
       <b class="grow" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(x.s.title)} · том ${x.v.n} · ${esc(chName(x.c))}</b>
       <span class="small" id="mcount"></span>
       <button class="icon-btn" data-act="mzoom" aria-label="Увеличить"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4M11 8v6M8 11h6"/></svg></button></div>
     <div class="mstage" id="mstage"></div>
-    <div id="mpre" hidden></div>
-    <div class="mhint small">${x.s.rtl ? 'Читается справа налево: следующая страница — нажми слева' : 'Следующая страница — нажми справа'}</div>
+    <div class="mhint small">${preview ? 'Просмотр для родителей: ничего не открывается и не отмечается. ' : ''}${x.s.rtl ? 'Читается справа налево: следующая страница — нажми слева' : 'Следующая страница — нажми справа'}</div>
   </div>`;
 };
 
+/** Downloads the whole chapter first (progress bar), so every page then turns instantly. */
+async function mLoad() {
+  const m = UI.m;
+  if (!m || m.ready || m.loading) return;
+  m.loading = true;
+  const names = m.v.pages.slice(m.c.start, m.c.end).map(q => q.f);
+  const bar = (done, total) => {
+    if (UI.m !== m) return;
+    const stage = $('#mstage');
+    if (stage) stage.innerHTML = `<div class="mload stack"><b>Загружаю главу…</b><div class="bar" style="width:min(320px,70vw);height:8px"><i style="width:${Math.round(100 * done / total)}%"></i></div><span class="small">${done} из ${total} стр.</span></div>`;
+  };
+  bar(0, names.length);
+  const ok = await fetchAssets(names, bar);
+  if (UI.m !== m) return; // he left the chapter while it was loading
+  m.loading = false;
+  if (!ok) {
+    const stage = $('#mstage');
+    if (stage) stage.innerHTML = '<div class="mload stack"><b>Не получилось загрузить главу</b><span class="small">Проверь интернет.</span><button class="btn" data-act="mRetry">Ещё раз</button></div>';
+    return;
+  }
+  m.ready = true;
+  mShow();
+  // The next chapter's first pages, quietly, so going on is quick too.
+  const all = mangaFlat(m.s), nx = all[all.findIndex(y => y.key === m.key) + 1];
+  if (nx && (m.preview || mangaUnlocked(nx.v.id))) fetchAssets(nx.v.pages.slice(nx.c.start, Math.min(nx.c.end, nx.c.start + 4)).map(q => q.f));
+}
 function mShow() {
   const m = UI.m, stage = $('#mstage');
   if (!m || !stage) return;
+  if (!m.ready) { mLoad(); return; }
   stage.classList.toggle('zoomed', m.zoom);
   if (m.p >= m.n) {
     // End of the chapter: the next chapter of the volume, or the next volume.
     const all = mangaFlat(m.s), k = all.findIndex(y => y.key === m.key), nx = all[k + 1];
     const price = mangaPrice();
     const next = !nx ? '<div class="muted">Это последний том, который есть. Новые появятся позже.</div>'
-      : mangaUnlocked(nx.v.id) ? `<a class="btn" href="#/mread/${esc(nx.v.id)}/${nx.i}">${nx.v === m.v ? '' : 'Том ' + nx.v.n + ' · '}${esc(chName(nx.c))} ›</a>`
+      : m.preview || mangaUnlocked(nx.v.id) ? `<a class="btn" href="#/mread/${esc(nx.v.id)}/${nx.i}${m.preview ? '?preview=1' : ''}">${nx.v === m.v ? '' : 'Том ' + nx.v.n + ' · '}${esc(chName(nx.c))} ›</a>`
       : `<button class="btn" data-act="mangaOpen" data-k="${esc(nx.v.id)}" ${spendable() < price ? 'disabled' : ''}>Открыть том ${nx.v.n} · ${coins(price)}</button>`;
-    stage.innerHTML = `<div class="mend stack"><b style="font-size:26px">${nx && nx.v === m.v ? 'Глава прочитана' : 'Том прочитан'}</b>${next}<a class="btn ghost" href="#/manga" style="color:#FFFFFF;border-color:#2B3344">Ко всей манге</a></div>`;
+    stage.innerHTML = `<div class="mend stack"><b style="font-size:26px">${nx && nx.v === m.v ? 'Глава прочитана' : 'Том прочитан'}</b>${next}<a class="btn ghost" href="${m.preview ? '#/parent' : '#/manga'}" style="color:#FFFFFF;border-color:#2B3344">${m.preview ? 'Назад к настройкам' : 'Ко всей манге'}</a></div>`;
     $('#mcount').textContent = '';
     return;
   }
   const pg = m.v.pages[m.c.start + m.p];
-  stage.innerHTML = `<img data-asset="${esc(pg.f)}" alt="Страница ${m.p + 1}" class="${m.zoom ? 'z' : ''}" style="aspect-ratio:${pg.w}/${pg.h}">`;
+  stage.innerHTML = `<img src="${ASSETS[pg.f]}" alt="Страница ${m.p + 1}" class="${m.zoom ? 'z' : ''}" style="aspect-ratio:${pg.w}/${pg.h}">`;
   $('#mcount').textContent = (m.p + 1) + ' / ' + m.n;
-  // The next few pages load in the background, so turning is instant.
-  $('#mpre').innerHTML = [1, 2, 3].map(k => m.p + k < m.n ? m.v.pages[m.c.start + m.p + k] : null).filter(Boolean)
-    .map(q => `<img data-asset="${esc(q.f)}" alt="">`).join('');
+  if (m.preview) return;
   const pos = store.get('mpos', {}) || {};
   pos[m.key] = m.p;
   store.set('mpos', pos);
   if (m.p === m.n - 1) { const rd = store.get('mread', {}) || {}; if (!rd[m.key]) { rd[m.key] = today(); store.set('mread', rd); } }
-  hydrate();
 }
 function mTurn(d) {
   const m = UI.m;
@@ -2101,7 +2162,7 @@ function mAttach() {
   stage.dataset.on = '1';
   const fwd = () => (UI.m && UI.m.s.rtl ? -1 : 1); // which screen side is "back"
   stage.addEventListener('click', e => {
-    if (!UI.m || UI.m.zoom || e.target.closest('a,button')) return;
+    if (!UI.m || !UI.m.ready || UI.m.zoom || e.target.closest('a,button')) return;
     const x = e.clientX / window.innerWidth;
     if (x < 0.35) mTurn(-fwd());
     else if (x > 0.65) mTurn(fwd());
@@ -2109,26 +2170,26 @@ function mAttach() {
   let x0 = null, y0 = null;
   stage.addEventListener('touchstart', e => { x0 = e.touches.length === 1 ? e.touches[0].clientX : null; y0 = x0 == null ? null : e.touches[0].clientY; }, { passive: true });
   stage.addEventListener('touchend', e => {
-    if (x0 == null || !UI.m || UI.m.zoom) return;
+    if (x0 == null || !UI.m || !UI.m.ready || UI.m.zoom) return;
     const dx = e.changedTouches[0].clientX - x0, dy = e.changedTouches[0].clientY - y0;
     if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) mTurn(dx < 0 ? fwd() : -fwd());
     x0 = null;
   }, { passive: true });
 }
 document.addEventListener('keydown', e => {
-  if (!UI.m || route().name !== 'mread' || /input|textarea/i.test(e.target.tagName)) return;
+  if (!UI.m || !UI.m.ready || route().name !== 'mread' || /input|textarea/i.test(e.target.tagName)) return;
   const f = UI.m.s.rtl ? -1 : 1;
   if (e.key === 'ArrowRight') mTurn(f);
   if (e.key === 'ArrowLeft') mTurn(-f);
   if (e.key === ' ') mTurn(1);
 });
-// Parent: every volume, with a free "open" for any of them (out of order too).
+// Parent: every volume, whether he has opened it, and a preview (nothing is opened or paid).
 function mangaParentHtml() {
   if (!MANGA) { loadManga().then(() => { if (route().name === 'parent') render(); }).catch(() => {}); return '<div class="small muted" style="margin-top:8px">Манга загружается…</div>'; }
   const vs = mangaVols();
   if (!vs.length) return '<div class="small muted" style="margin-top:8px">Томов пока нет: их добавляет prep_manga.py.</div>';
   return '<div class="stack" style="gap:6px;margin-top:10px">' + vs.map(x => `<div class="row" style="gap:10px"><span class="grow small">${esc(volName(x))}</span>${mangaUnlocked(x.v.id)
-    ? `<span class="pill green">открыт</span><button class="btn ghost small" data-act="mangaLock" data-k="${esc(x.v.id)}">Закрыть</button>` : `<button class="btn ghost small" data-act="mangaGift" data-k="${esc(x.v.id)}">Открыть бесплатно</button>`}</div>`).join('') + '</div>';
+    ? '<span class="pill green">открыт</span>' : '<span class="pill">закрыт</span>'}<a class="btn ghost small" href="#/mread/${esc(x.v.id)}/0?preview=1">Посмотреть</a></div>`).join('') + '</div>';
 }
 
 VIEWS.parent = () => {
@@ -2427,29 +2488,7 @@ const ACTS = {
   toggleAi: () => setNow({ ai_enabled: !aiOn() }),
   toggleManga: () => setNow({ manga_on: !yes(S().manga_on) }),
   toggleScreen: () => setNow({ screen_on: !screenOn() }),
-  mangaGift: el => {
-    const x = mangaVol(el.dataset.k);
-    if (!x || mangaUnlocked(x.v.id)) return;
-    save([ledger('manga', 0, x.v.id, volName(x) + ' · открыл родитель')]);
-    toast('Открыт: ' + volName(x));
-    render();
-  },
-  mangaLock: el => {
-    const x = mangaVol(el.dataset.k);
-    if (!x || !mangaUnlocked(x.v.id)) return;
-    const paid = -num([...(D.ledger || [])].reverse().find(l => l.kind === 'manga' && l.ref === x.v.id).mins, 0);
-    openSheet(`<h3>Закрыть том ${x.v.n}?</h3><div class="muted">${esc(volName(x))} снова станет закрытым.${paid > 0 ? ' Ему вернутся ' + coins(paid) + ', которые он за него заплатил.' : ''}</div>
-      <div class="row" style="justify-content:flex-end;gap:10px"><button class="btn ghost" data-act="closeSheet">Отмена</button><button class="btn" data-act="mangaLockYes" data-k="${esc(x.v.id)}">Закрыть том</button></div>`, true);
-  },
-  mangaLockYes: el => {
-    const x = mangaVol(el.dataset.k);
-    closeSheet();
-    if (!x || !mangaUnlocked(x.v.id)) return;
-    const paid = -num([...(D.ledger || [])].reverse().find(l => l.kind === 'manga' && l.ref === x.v.id).mins, 0);
-    save([ledger('manga_lock', Math.max(0, paid), x.v.id, volName(x) + ' · закрыл родитель')]);
-    toast('Закрыт: ' + volName(x) + (paid > 0 ? ' · +' + coins(paid) + ' вернулись' : ''));
-    render();
-  },
+  mRetry: () => { if (UI.m) { UI.m.loading = false; mLoad(); } },
   mangaOpen: el => {
     const x = mangaVol(el.dataset.k), price = mangaPrice();
     if (!x) return;
