@@ -16,7 +16,7 @@ const yes = v => v === true || v === 'true';
 const fmt = n => Number(n).toLocaleString(EN() ? 'en-GB' : 'ru-RU');
 const IS_LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 
-const APP_VERSION = 45; // keep equal to the number in sw.js's CACHE name
+const APP_VERSION = 46; // keep equal to the number in sw.js's CACHE name
 
 // The English copy lives at /polka-en/ (outside this app's scope, so phones keep them as two apps)
 // and loads its code from /polka/. It keeps its own storage keys.
@@ -123,6 +123,8 @@ let D = store.get('cache', null); // everything from bootstrap
 const UI = { genre: 'all', len: 'all', shelfSort: 'recent', pin: '', parentOk: false, check: {}, bz: null, r: null, chat: null, test: null };
 
 function S() { return (D && D.settings) || {}; }
+/** Her one-chapter stories: the questions finish the story at once. Longer books (adapted classics) go chapter by chapter, like his. */
+function enShort(b) { return EN() && (!b || (b.chapters || 1) <= 1); }
 function saveCache() { store.set('cache', D); }
 
 /* Writes go into an outbox first (so nothing is lost without wifi) and are sent in order.
@@ -612,8 +614,8 @@ VIEWS.home = () => {
     const nextCh = Math.min(passed + 1, cur.chapters || 1);
     const bookData = bookNow(s.cur_book);
     const chData = bookData && bookData.chapters[nextCh - 1];
-    const line = EN() ? esc(cur.level || '') + ' · ' + fmt(cur.words) + ' words · ' + readHours(cur).replace('≈ ', 'about ') : allPassed ? 'Все главы пройдены · осталась финальная проверка'
-      : 'Глава ' + nextCh + ' из ' + cur.chapters + (chData && chData.title ? ' · ' + esc(chData.title) : '');
+    const line = enShort(cur) ? esc(cur.level || '') + ' · ' + fmt(cur.words) + ' words · ' + readHours(cur).replace('≈ ', 'about ') : allPassed ? L('Все главы пройдены · осталась финальная проверка', 'All chapters done · the final check is left')
+      : L('Глава ', 'Chapter ') + nextCh + L(' из ', ' of ') + cur.chapters + (chData && chData.title ? ' · ' + esc(chData.title) : '');
     const chPay = chData ? chMins(cur, chData.words) : Math.max(1, Math.round(readMins(cur.words / (cur.chapters || 1), cur)));
     current = `
       <section class="card big current">
@@ -633,8 +635,8 @@ VIEWS.home = () => {
               : `<a class="btn" href="#/read/${s.cur_book}/${nextCh}">${passed ? L('Читать главу ', 'Read chapter ') + nextCh : L('Читать', 'Read')}</a>`)
               : '<span class="muted">' + L('Книгу ещё готовлю', 'Coming soon') + '</span>'}
             <div class="stack" style="gap:2px">
-              ${allPassed || EN() ? '' : `<b style="font-size:15px">+${coins(chPay)} за главу</b>`}
-              <span class="small" style="color:var(--amber-ink);font-weight:600">+${EN() ? coins(chPay + finalMins(cur)) + ' for this story' : coins(finalMins(cur)) + ' за всю книгу'}</span>
+              ${allPassed || enShort(cur) ? '' : `<b style="font-size:15px">+${coins(chPay)}${L(' за главу', ' for the chapter')}</b>`}
+              <span class="small" style="color:var(--amber-ink);font-weight:600">+${enShort(cur) ? coins(chPay + finalMins(cur)) + ' for this story' : coins(finalMins(cur)) + L(' за всю книгу', ' for the whole book')}</span>
             </div>
           </div>
         </div>
@@ -688,7 +690,7 @@ function mangaTile() {
 
 /** Her library: no filters while it is small; later a few themes, only ones that really narrow the list. */
 function enFilters() {
-  const NAMES = { Love: 'Love', 'Later life': 'Later life', Gossip: 'Gossip', Sea: 'By the sea', Letters: 'Letters', Wedding: 'Weddings', Music: 'Music', Food: 'Food', Secret: 'Secrets', Friendship: 'Friends' };
+  const NAMES = { Love: 'Love', 'Later life': 'Later life', Gossip: 'Gossip', Sea: 'By the sea', Letters: 'Letters', Wedding: 'Weddings', Music: 'Music', Food: 'Food', Secret: 'Secrets', Friendship: 'Friends', Christmas: 'Christmas' };
   const unread = Object.keys(BOOKS).filter(id => !isDone(id)).map(id => BOOKS[id]);
   UI.len = 'all'; // her stories are all short: no length filter
   if (unread.length < 8) { UI.genre = 'all'; return []; }
@@ -793,7 +795,7 @@ VIEWS.book = r => {
         <div class="small muted">${EN() ? esc(b.level || '') + ' · ' + (EN_LEVEL[b.level] || '') : b.year + ' · ' + esc(b.genre)}</div>
         <div class="row wrap" style="gap:8px">${(b.themes || []).map(t => '<span class="tag">' + esc(t) + '</span>').join('')}</div>
         <div class="grid3" style="margin-top:6px">
-          <div class="fact"><b>${pagesText(b)}</b><span class="tiny muted">${b.counted ? '' : '≈ '}${fmt(b.words)}${L(' слов', ' words')}${b.chapters > 1 ? ' · ' + b.chapters + ' ' + plural(b.chapters, 'глава', 'главы', 'глав') : ''} · ${readHours(b).replace('≈ ', '')}</span></div>
+          <div class="fact"><b>${pagesText(b)}</b><span class="tiny muted">${b.counted ? '' : '≈ '}${fmt(b.words)}${L(' слов', ' words')}${b.chapters > 1 ? ' · ' + b.chapters + ' ' + plural(b.chapters, 'глава', 'главы', 'глав', 'chapter', 'chapters') : ''} · ${readHours(b).replace('≈ ', '')}</span></div>
           ${EN() ? '<div class="fact"><b>' + esc(b.level || '') + '</b><span class="tiny muted">' + (EN_LEVEL[b.level] || '') + '</span></div>' : `<div class="fact"><b>${b.age}+ лет</b><span class="tiny muted">${hard ? 'пока сложновато' : ageDiff(b) > 0 ? 'выше твоего уровня · ×' + ru(mult(b)) : ageDiff(b) < 0 ? 'ниже твоего уровня · ×' + ru(mult(b)) : 'твой уровень'}</span></div>`}
           <div class="fact"><b>${hard ? '—' : '≈ ' + coins(bookMins(b) + finalMins(b))}</b><span class="tiny muted">${hard ? '' : (EN() ? bookMins(b) + ' for reading + ' + finalMins(b) + ' for finishing' : bookMins(b) + ' за главы + ' + finalMins(b) + ' за всю книгу')}</span></div>
         </div>
@@ -838,22 +840,22 @@ VIEWS.read = async r => {
   }).join('');
   const end = look ? `<div class="end">${n < book.chapters.length ? `<a class="btn ghost" href="#/read/${id}/${n + 1}?look=1">${L('Глава ', 'Chapter ')}${n + 1} ›</a>` : ''}<a class="btn ghost" href="#/book/${id}">${L('К книге', 'About the story')}</a></div>`
     // Her stories are one chapter: its questions finish the story and pay for all of it.
-    : EN() ? (passed ? `<div class="end"><a class="btn" href="#/home">To my shelf</a></div>` : `<div class="end"><a class="btn" href="#/check/${id}/${n}">Questions about the story · +${coins(chMins(b, ch.words) + finalMins(b))}</a></div>`)
+    : enShort(b) ? (passed ? `<div class="end"><a class="btn" href="#/home">To my shelf</a></div>` : `<div class="end"><a class="btn" href="#/check/${id}/${n}">Questions about the story · +${coins(chMins(b, ch.words) + finalMins(b))}</a></div>`)
     : n < book.chapters.length || !passed
-    ? (passed ? `<div class="end"><a class="btn" href="#/read/${id}/${n + 1}">Глава ${n + 1} ›</a></div>`
-      : `<div class="end"><a class="btn" href="#/check/${id}/${n}">Проверка главы · +${coins(chMins(b, ch.words))}</a></div>`)
-    : `<div class="end"><a class="btn" href="#/check/${id}/final">Финальная проверка · +${coins(finalMins(b))}</a></div>`;
+    ? (passed ? `<div class="end"><a class="btn" href="#/read/${id}/${n + 1}">${L('Глава ', 'Chapter ')}${n + 1} ›</a></div>`
+      : `<div class="end"><a class="btn" href="#/check/${id}/${n}">${L('Проверка главы', 'Questions on the chapter')} · +${coins(chMins(b, ch.words))}</a></div>`)
+    : `<div class="end"><a class="btn" href="#/check/${id}/final">${L('Финальная проверка', 'Final check')} · +${coins(finalMins(b))}</a></div>`;
   return `<div class="reader ${prefs.theme}" id="reader"${EN() ? ' lang="en"' : ''}>
     <header class="r-bar">
       <a class="r-icon" href="${look ? '#/book/' + id : '#/home'}" aria-label="${L(look ? 'К книге' : 'На полку', 'Back')}">${ICON.back}</a>
-      <div class="title">${EN() ? esc(b.short) : esc(b.short) + ' · Глава ' + n}${look ? L(' · просто листаю', ' · just looking') : ''}${secret && !secretFound(id, n) ? ' · 🔎' : ''}</div>
+      <div class="title">${enShort(b) ? esc(b.short) : esc(b.short) + L(' · Глава ', ' · Chapter ') + n}${look ? L(' · просто листаю', ' · just looking') : ''}${secret && !secretFound(id, n) ? ' · 🔎' : ''}</div>
       ${look ? `<button class="r-icon" data-act="toc" aria-label="${L('Главы и страницы', 'Chapters and pages')}" style="width:auto;padding:0 10px;font-size:15px;font-weight:600">${L('Главы', 'Chapters')}</button>` : ''}
       ${aiOn() ? `<button class="r-icon" data-act="chat" aria-label="${L('Обсудить', 'Talk about it')}">${ICON.chat}</button>` : ''}
       <button class="r-icon" data-act="aa" aria-label="${L('Текст', 'Text')}">Aa</button>
     </header>
     <div class="r-body" id="rbody">
       <div class="r-viewport" id="rvp"><div class="r-cols" id="rcols">
-        <div class="chno">${EN() ? 'by ' + esc(authorOf(b).name) : 'Глава ' + n}</div>${ch.title ? '<h1>' + esc(ch.title) + '</h1>' : ''}${html}${end}
+        <div class="chno">${enShort(b) ? 'by ' + esc(authorOf(b).name) : L('Глава ', 'Chapter ') + n}</div>${ch.title ? '<h1>' + esc(ch.title) + '</h1>' : ''}${html}${end}
       </div></div>
       <button class="r-tap l" data-act="pg" data-d="-1" aria-label="${L('Назад', 'Back')}"></button>
       <button class="r-tap r" data-act="pg" data-d="1" aria-label="${L('Дальше', 'Next')}"></button>
@@ -1183,13 +1185,13 @@ VIEWS.check = async r => {
   const all = C.qs.every((q, i) => C.answers[i] !== undefined);
   let foot;
   if (!C.done) foot = `<button class="btn" data-act="submitCheck" data-key="${key}" style="align-self:flex-start" ${all ? '' : 'disabled'}>${L('Проверить', 'Check my answers')}</button>`;
-  else if (C.passed) foot = `<section class="result"><div class="grow stack" style="gap:4px"><b style="font-size:20px">${C.score}${L(' из ', ' of ')}${C.qs.length} · ${EN() ? 'story finished!' : isFinal ? 'книга прочитана!' : 'глава засчитана'}</b>
+  else if (C.passed) foot = `<section class="result"><div class="grow stack" style="gap:4px"><b style="font-size:20px">${C.score}${L(' из ', ' of ')}${C.qs.length} · ${enShort(BOOKS[id]) ? 'story finished!' : isFinal ? L('книга прочитана!', 'book finished!') : L('глава засчитана', 'chapter done')}</b>
       <span style="color:var(--dark-muted)">${C.mins ? '+' + coins(C.mins) : L('Эта глава уже была засчитана', 'This story was already counted')}${C.note ? ' · ' + esc(C.note) : ''}</span></div>
-      <a class="btn amber" href="${isFinal || EN() ? '#/book/' + id + '?from=home' : n < book.chapters.length ? '#/read/' + id + '/' + (n + 1) : '#/home'}">${isFinal || EN() ? L('Оценить книгу', 'Rate the story') : n < book.chapters.length ? 'Глава ' + (n + 1) + ' ›' : 'На полку'}</a></section>`;
+      <a class="btn amber" href="${isFinal || enShort(BOOKS[id]) ? '#/book/' + id + '?from=home' : n < book.chapters.length ? '#/read/' + id + '/' + (n + 1) : '#/home'}">${isFinal || enShort(BOOKS[id]) ? L('Оценить книгу', 'Rate the story') : n < book.chapters.length ? L('Глава ', 'Chapter ') + (n + 1) + ' ›' : L('На полку', 'To my shelf')}</a></section>`;
   else foot = `<section class="result fail"><b class="grow" style="font-size:20px">${C.score}${L(' из ', ' of ')}${C.qs.length} · ${L('нужно ', 'needed: ')}${need}</b>
       ${isFinal ? '' : `<a class="btn ghost" href="#/read/${id}/${n}">${L('Перечитать', 'Read again')}</a>`}<button class="btn" data-act="retryCheck" data-key="${key}">${L('Ещё раз', 'Try again')}</button></section>`;
   return `<div class="page white full"${EN() ? ' lang="en"' : ''}>
-    <header class="head">${backBtn(isFinal ? 'home' : 'read/' + id + '/' + n)}<h1>${EN() ? esc(BOOKS[id].short) : isFinal ? 'Финальная проверка' : 'Проверка · глава ' + n}</h1>${info(EN() ? 'en_quiz' : isFinal ? 'final' : 'quiz')}</header>
+    <header class="head">${backBtn(isFinal ? 'home' : 'read/' + id + '/' + n)}<h1>${enShort(BOOKS[id]) ? esc(BOOKS[id].short) : isFinal ? L('Финальная проверка', 'Final check') : L('Проверка · глава ', 'Questions · chapter ') + n}</h1>${info(enShort(BOOKS[id]) ? 'en_quiz' : isFinal ? 'final' : 'quiz')}</header>
     ${qHtml}${foot}</div>`;
 };
 
@@ -1219,7 +1221,7 @@ function submitCheck(key) {
       if (k > -1) words[k] = merged; else words.push(merged);
     });
     const already = passedCh(id) >= n;
-    if (EN() && C.passed && !already) {
+    if (enShort(b) && C.passed && !already) {
       // Her stories are one chapter each: passing the questions finishes the story, paying for the chapter
       // and for the whole book at once, with the bingo stamp and the move to the next story (as his final check).
       const p = progressOf(id), cell = bingoCellFor(b, p), s = S();
@@ -1238,8 +1240,9 @@ function submitCheck(key) {
       C.rankBefore = rankIdx(words90());
       ops.push(ledger('chapter', mins, id + ':' + n));
       ops.push({ t: 'Progress', rows: [Object.assign({ book_id: id, status: 'reading', started: today() }, progressOf(id) || {}, { chapters_passed: n, updated: today() })] });
-      // The language age moves a little with every chapter, more for harder books.
+      // The language age moves a little with every chapter, more for harder books (his books only).
       const d = ageDiff(b);
+      if (!EN()) {
       let prog = num(S().lang_prog, 0) + (d < 0 ? 0.15 : d === 0 ? 0.35 : d === 1 ? 0.5 : 0.6) * (C.score === C.qs.length ? 1.2 : 1);
       let months = langMonths();
       if (prog >= 1) { months += Math.floor(prog); prog %= 1; C.note = 'уровень языка: ' + ym(months); }
@@ -1247,6 +1250,7 @@ function submitCheck(key) {
       const ev = evidenceMonths(chapterChecks().concat([{ book_id: id, chapter: n, score: C.score, total: C.qs.length }]));
       if (ev > months) { months = ev; prog = 0; C.note = 'уровень языка: ' + ym(months); }
       set.lang_months = months; set.lang_prog = Math.round(prog * 100) / 100;
+      }
     }
     ops.push({ t: 'Checks', rows: [{ id: rid(), date: today(), book_id: id, chapter: n, score: C.score, total: C.qs.length, passed: C.passed && !already, mins, words: C.passed && !already ? ch.words : 0 }] });
   } else {
@@ -1261,7 +1265,7 @@ function submitCheck(key) {
       set.cur_book = next;
       if (next) { set.next_book = ''; set.locked = true; }
       set.shortlist = shortlist().filter(x => x !== id && x !== next).join(',');
-      if (cell) C.note = 'бинго: «' + cell.split(':').slice(1).join(':') + '»';
+      if (cell) C.note = L('бинго: «', 'bingo: “') + cell.split(':').slice(1).join(':') + L('»', '”');
     }
     ops.push({ t: 'Checks', rows: [{ id: rid(), date: today(), book_id: id, chapter: 'final', score: C.score, total: C.qs.length, passed: C.passed, mins, words: 0 }] });
   }

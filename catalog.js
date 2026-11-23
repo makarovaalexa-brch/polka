@@ -131,6 +131,7 @@ const BINGO_POOL_EN = {
   'Food and baking': b => has(b.themes, 'Food'),
   'A secret': b => has(b.themes, 'Secret'),
   'Friendship': b => has(b.themes, 'Friendship'),
+  'A Christmas story': b => has(b.themes, 'Christmas'),
   'Easier (A2)': b => b.level === 'A2',
   'Medium (A2+)': b => b.level === 'A2+',
   'Harder (B1)': b => b.level === 'B1',
