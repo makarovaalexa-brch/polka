@@ -16,7 +16,7 @@ const yes = v => v === true || v === 'true';
 const fmt = n => Number(n).toLocaleString('ru-RU');
 const IS_LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 
-const APP_VERSION = 38; // keep equal to the number in sw.js's CACHE name
+const APP_VERSION = 39; // keep equal to the number in sw.js's CACHE name
 
 // The English copy lives at /polka-en/ (outside this app's scope, so phones keep them as two apps)
 // and loads its code from /polka/. It keeps its own storage keys.
@@ -353,7 +353,7 @@ function coverHtml(b, w, h, fs) {
 }
 
 /** Pass mark: three quarters of the questions, rounded up (6 of 8 for the final check). */
-function passMark(total) { return Math.ceil(total * 0.75); }
+function passMark(total) { return Math.ceil(total * (EN() ? 0.6 : 0.75)); }
 /** How many times he has restarted this check (each restart draws new questions). */
 function tries(key) { return (store.get('tries', {}) || {})[key] || 0; }
 /** A copy of arr in an order fixed by seed. */
@@ -441,7 +441,7 @@ function render() {
     drawPin();
     return;
   }
-  const view = (EN() && (EN_VIEWS[r.name] || EN_VIEWS.home)) || VIEWS[r.name] || VIEWS.home;
+  const view = (EN() && (EN_VIEWS[r.name] || (EN_SHARED.indexOf(r.name) > -1 ? VIEWS[r.name] : EN_VIEWS.home))) || VIEWS[r.name] || VIEWS.home;
   if (r.name !== 'read') leaveReader();
   if (r.name !== 'mread') UI.m = null;
   // A parent's trial test is forgotten as soon as they leave it, so he never sees it.
@@ -471,6 +471,8 @@ const ICON = {
   bolt: '<svg width="20" height="20" viewBox="0 0 24 24" fill="#F0A42C"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>',
   coin: '<svg width="26" height="26" viewBox="0 0 26 26"><circle cx="13" cy="13" r="12" fill="#F0A42C"/><circle cx="13" cy="13" r="8.5" fill="none" stroke="#B8740F" stroke-width="1.6"/><path d="M13 8.5V13l3 2" fill="none" stroke="#7A4A05" stroke-width="2" stroke-linecap="round"/></svg>',
 };
+/** Her English screens reuse his reader, check and Блиц: the same screens with English words. */
+const L = (ru, en) => (EN() ? en : ru);
 const info = key => '<button class="info" data-act="info" data-k="' + key + '" aria-label="Подробнее">i</button>';
 const backBtn = to => '<a class="icon-btn" href="#/' + to + '" aria-label="Назад">' + ICON.back + '</a>';
 
@@ -482,6 +484,8 @@ const INFO = {
   ranks: 'Звание считается по словам, прочитанным за последние 3 месяца. Если перестать читать, оно может опуститься — и снова подняться, когда вернёшься к книгам.',
   bingo: 'Каждая прочитанная книга закрывает одну подходящую клетку. Ряд, столбец или диагональ — +10 монет, вся карточка — +30 монет. Потом можно начать новую карточку с другими клетками.',
   blitz: 'В раунде до 20 вопросов на 2 минуты: сначала слова на сегодня, потом повторение других твоих слов. Слово уходит из списка после трёх верных ответов в разные дни: значение, слово в предложении, слово по значению. Ошибка — и слово начинает заново и вернётся ещё в этом раунде. После трёх ответов слово отдыхает месяц, потом одна проверка.',
+  en_quiz: 'A few questions about the story and two about the underlined words. If it does not go well, read the story again and try once more: the questions will be different.',
+  en_blitz: 'Up to 20 questions in 2 minutes, with words from your stories: the underlined ones and the ones you tapped. A word is learned after three right answers on different days: its meaning, the word in a sentence, the word from its meaning. A wrong answer and the word starts again.',
   quiz: 'Чем длиннее глава, тем больше вопросов. Для зачёта нужно три четверти верных ответов. Если не получилось, можно перечитать главу и попробовать ещё раз — вопросы будут другие.',
   final: 'Финальная проверка по всей книге: нужно 6 верных из 8.',
   ai: 'Можно спросить о том, что ты уже прочитал: что значит слово или фраза, почему герой так поступил. Ответы не рассказывают, что будет дальше.',
@@ -735,40 +739,42 @@ VIEWS.read = async r => {
   UI.r = { id, n, look, page: keepPage != null ? keepPage : (!look && pos && pos.n === n ? -1 : 0), frac: !look && pos && pos.n === n ? pos.frac : 0, pages: 1, prefs, shown: Date.now(), aa: false, pop: null };
   if (!UI.chat || UI.chat.key !== 'reader:' + id + ':' + n) UI.chat = { key: 'reader:' + id + ':' + n, msgs: [], busy: false };
   const passed = passedCh(id) >= n;
+  if (EN() && !progressOf(id)) save([{ t: 'Progress', rows: [{ book_id: id, status: 'reading', started: today(), chapters_passed: 0, updated: today() }] }]);
   const secret = look ? null : SECRETS[id + ':' + n];
   // Words he knows from other books stay tappable but lose the underline (the secret word keeps it).
   const known = knownBases();
   const own = new Set((D.words || []).filter(w => w.book_id === id).map(w => w.word_id));
-  const hwCls = wid => { const g = book.glossary[wid]; return g && !g.g && !own.has(wid) && known.has(baseKey(g.base)) && !(secret && secret.id === wid) ? 'hw kn' : 'hw'; };
+  const hwCls = wid => { const g = book.glossary[wid]; return g && g.soft ? 'hw kn' : g && !g.g && !own.has(wid) && known.has(baseKey(g.base)) && !(secret && secret.id === wid) ? 'hw kn' : 'hw'; };
   const html = ch.blocks.map(bl => {
     if (typeof bl === 'object' && bl.img) return `<figure>${asset(bl.img, 'style="width:' + (bl.w || 360) + 'px" data-act="zoom"')}</figure>`;
     // A block with line breaks is a stanza of verse: keep its lines.
     return (bl.indexOf('\n') > -1 ? '<p class="verse">' : '<p>') + esc(bl).replace(/\{(\w+)\|([^}]+)\}/g, (m, wid, text) => `<span class="${hwCls(wid)}" role="button" data-act="word" data-id="${wid}">${text}</span>`).replace(/\n/g, '<br>') + '</p>';
   }).join('');
-  const end = look ? `<div class="end">${n < book.chapters.length ? `<a class="btn ghost" href="#/read/${id}/${n + 1}?look=1">Глава ${n + 1} ›</a>` : ''}<a class="btn ghost" href="#/book/${id}">К книге</a></div>`
+  const end = EN() ? (passed ? `<div class="end"><a class="btn" href="#/home">Back to the stories</a></div>` : `<div class="end"><a class="btn" href="#/check/${id}/${n}">Questions about the story</a></div>`)
+    : look ? `<div class="end">${n < book.chapters.length ? `<a class="btn ghost" href="#/read/${id}/${n + 1}?look=1">Глава ${n + 1} ›</a>` : ''}<a class="btn ghost" href="#/book/${id}">К книге</a></div>`
     : n < book.chapters.length || !passed
     ? (passed ? `<div class="end"><a class="btn" href="#/read/${id}/${n + 1}">Глава ${n + 1} ›</a></div>`
       : `<div class="end"><a class="btn" href="#/check/${id}/${n}">Проверка главы · +${coins(chMins(b, ch.words))}</a></div>`)
     : `<div class="end"><a class="btn" href="#/check/${id}/final">Финальная проверка · +${coins(finalMins(b))}</a></div>`;
-  return `<div class="reader ${prefs.theme}" id="reader">
+  return `<div class="reader ${prefs.theme}" id="reader"${EN() ? ' lang="en"' : ''}>
     <header class="r-bar">
-      <a class="r-icon" href="${look ? '#/book/' + id : '#/home'}" aria-label="${look ? 'К книге' : 'На полку'}">${ICON.back}</a>
-      <div class="title">${esc(b.short)} · Глава ${n}${look ? ' · просто листаю' : ''}${secret && !secretFound(id, n) ? ' · 🔎' : ''}</div>
+      <a class="r-icon" href="${look ? '#/book/' + id : '#/home'}" aria-label="${L(look ? 'К книге' : 'На полку', 'Back')}">${ICON.back}</a>
+      <div class="title">${EN() ? esc(b.short) : esc(b.short) + ' · Глава ' + n}${look ? ' · просто листаю' : ''}${secret && !secretFound(id, n) ? ' · 🔎' : ''}</div>
       ${look ? `<button class="r-icon" data-act="toc" aria-label="Главы и страницы" style="width:auto;padding:0 10px;font-size:15px;font-weight:600">Главы</button>` : ''}
-      ${aiOn() ? `<button class="r-icon" data-act="chat" aria-label="Обсудить">${ICON.chat}</button>` : ''}
-      <button class="r-icon" data-act="aa" aria-label="Текст">Aa</button>
+      ${aiOn() && !EN() ? `<button class="r-icon" data-act="chat" aria-label="Обсудить">${ICON.chat}</button>` : ''}
+      <button class="r-icon" data-act="aa" aria-label="${L('Текст', 'Text')}">Aa</button>
     </header>
     <div class="r-body" id="rbody">
       <div class="r-viewport" id="rvp"><div class="r-cols" id="rcols">
-        <div class="chno">Глава ${n}</div>${ch.title ? '<h1>' + esc(ch.title) + '</h1>' : ''}${html}${end}
+        <div class="chno">${EN() ? 'by ' + esc(authorOf(b).name) : 'Глава ' + n}</div>${ch.title ? '<h1>' + esc(ch.title) + '</h1>' : ''}${html}${end}
       </div></div>
-      <button class="r-tap l" data-act="pg" data-d="-1" aria-label="Назад"></button>
-      <button class="r-tap r" data-act="pg" data-d="1" aria-label="Дальше"></button>
+      <button class="r-tap l" data-act="pg" data-d="-1" aria-label="${L('Назад', 'Back')}"></button>
+      <button class="r-tap r" data-act="pg" data-d="1" aria-label="${L('Дальше', 'Next')}"></button>
     </div>
     <footer class="r-foot">
-      <button class="pgbtn" id="pgPrev" data-act="pg" data-d="-1" aria-label="Предыдущая страница">${ICON.back}</button>
+      <button class="pgbtn" id="pgPrev" data-act="pg" data-d="-1" aria-label="${L('Предыдущая страница', 'Previous page')}">${ICON.back}</button>
       <div class="r-prog"><div class="bar"><i id="pgBar" style="width:0"></i></div><span id="pgText"></span></div>
-      <button class="pgbtn" id="pgNext" data-act="pg" data-d="1" aria-label="Следующая страница">${ICON.next}</button>
+      <button class="pgbtn" id="pgNext" data-act="pg" data-d="1" aria-label="${L('Следующая страница', 'Next page')}">${ICON.next}</button>
     </footer>
     <button id="askSel" class="btn small" data-act="askSel" hidden style="position:absolute;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 96px);z-index:5"></button>
     <div id="rpanel"></div>
@@ -821,7 +827,7 @@ function showPage() {
   const R = UI.r, cols = $('#rcols');
   if (!R || !cols) return;
   cols.style.transform = 'translateX(' + -(R.page * (R.W + R.G)) + 'px)';
-  $('#pgText').textContent = 'Страница ' + (R.page + 1) + ' из ' + R.pages;
+  $('#pgText').textContent = L('Страница ', 'Page ') + (R.page + 1) + L(' из ', ' of ') + R.pages;
   $('#pgBar').style.width = Math.round((R.page + 1) / R.pages * 100) + '%';
   $('#pgPrev').disabled = R.page === 0;
   $('#pgNext').disabled = R.page >= R.pages - 1;
@@ -898,7 +904,7 @@ document.addEventListener('keydown', e => {
 /* Selecting any text (long press on the iPad) offers "Спросить про «…»". */
 document.addEventListener('selectionchange', () => {
   const btn = $('#askSel');
-  if (!btn || !UI.r || !aiOn()) return;
+  if (!btn || !UI.r || !aiOn() || EN()) return;
   const sel = window.getSelection();
   const text = sel ? String(sel).trim().replace(/\s+/g, ' ') : '';
   const inside = sel && sel.rangeCount && $('#rcols') && $('#rcols').contains(sel.anchorNode);
@@ -935,13 +941,13 @@ function aaPanel() {
   const P = UI.r.prefs;
   const seg = (key, val, label, style) => `<button class="seg ${P[key] === val ? 'on' : ''}" data-act="pref" data-k="${key}" data-v="${val}" style="${style || ''}">${label}</button>`;
   return `<div class="r-panel r-aa">
-    <div class="row"><button class="seg" style="flex:0 0 56px" data-act="fontsize" data-d="-1" aria-label="Мельче">A</button>
+    <div class="row"><button class="seg" style="flex:0 0 56px" data-act="fontsize" data-d="-1" aria-label="${L('Мельче', 'Smaller')}">A</button>
       <div class="grow" style="text-align:center">${[17, 18, 20, 22, 24, 26][P.size]}</div>
-      <button class="seg" style="flex:0 0 56px;font-size:22px" data-act="fontsize" data-d="1" aria-label="Крупнее">A</button></div>
+      <button class="seg" style="flex:0 0 56px;font-size:22px" data-act="fontsize" data-d="1" aria-label="${L('Крупнее', 'Bigger')}">A</button></div>
     <div class="row" style="gap:8px">${seg('font', 'golos', 'Golos', "font-family:'Golos Text'")}${seg('font', 'ptserif', 'PT Serif', "font-family:'PT Serif'")}${seg('font', 'literata', 'Literata', 'font-family:Literata')}</div>
-    <div class="row" style="gap:8px">${seg('spacing', 'tight', 'Плотнее')}${seg('spacing', 'normal', 'Обычно')}${seg('spacing', 'wide', 'Шире')}</div>
-    <div class="row" style="gap:8px">${seg('theme', 'light', 'Светлый')}${seg('theme', 'sepia', 'Сепия')}${seg('theme', 'dark', 'Тёмный')}</div>
-    <button data-act="bug" style="align-self:flex-start;padding:6px 0;color:var(--blue);font-size:15px;font-weight:600">Сообщить об ошибке</button>
+    <div class="row" style="gap:8px">${seg('spacing', 'tight', L('Плотнее', 'Tighter'))}${seg('spacing', 'normal', L('Обычно', 'Normal'))}${seg('spacing', 'wide', L('Шире', 'Wider'))}</div>
+    <div class="row" style="gap:8px">${seg('theme', 'light', L('Светлый', 'Light'))}${seg('theme', 'sepia', L('Сепия', 'Sepia'))}${seg('theme', 'dark', L('Тёмный', 'Dark'))}</div>
+    <button data-act="bug" style="align-self:flex-start;padding:6px 0;color:var(--blue);font-size:15px;font-weight:600">${L('Сообщить об ошибке', 'Report a problem')}</button>
   </div>`;
 }
 
@@ -962,9 +968,9 @@ function tapWord(wid) {
   $('#rpanel').innerHTML = `<div class="r-panel r-pop">
     <div class="row" style="align-items:flex-start;justify-content:space-between">
       <div><div class="base">${esc(g.base)}</div><div class="gram">${esc(g.gram || '')}</div></div>
-      <button class="r-icon" data-act="closePanel" aria-label="Закрыть">${ICON.close}</button></div>
-    <div class="ru">${esc(g.ru)}</div>
-    ${aiOn() ? `<button data-act="askWord" data-base="${esc(g.base)}" style="align-self:flex-start;padding:8px 0;color:var(--blue);font-size:15px;font-weight:600">Всё равно непонятно — спросить</button>` : ''}</div>`;
+      <button class="r-icon" data-act="closePanel" aria-label="${L('Закрыть', 'Close')}">${ICON.close}</button></div>
+    <div class="ru" lang="ru">${esc(g.ru)}</div>
+    ${aiOn() && !EN() ? `<button data-act="askWord" data-base="${esc(g.base)}" style="align-self:flex-start;padding:8px 0;color:var(--blue);font-size:15px;font-weight:600">Всё равно непонятно — спросить</button>` : ''}</div>`;
 }
 function secretFound(id, n) { return !!store.get('secrets', {})[id + ':' + n]; }
 
@@ -1078,14 +1084,18 @@ VIEWS.check = async r => {
     }).join('')}</div></section>`).join('');
   const all = C.qs.every((q, i) => C.answers[i] !== undefined);
   let foot;
-  if (!C.done) foot = `<button class="btn" data-act="submitCheck" data-key="${key}" style="align-self:flex-start" ${all ? '' : 'disabled'}>Проверить</button>`;
+  if (!C.done) foot = `<button class="btn" data-act="submitCheck" data-key="${key}" style="align-self:flex-start" ${all ? '' : 'disabled'}>${L('Проверить', 'Check my answers')}</button>`;
+  else if (EN()) foot = C.passed ? `<section class="result"><div class="grow stack" style="gap:4px"><b style="font-size:20px">${C.score} of ${C.qs.length} · well done!</b>
+      <span style="color:var(--dark-muted)">The underlined words are now in your Blitz.</span></div><a class="btn amber" href="#/home">Back to the stories</a></section>`
+    : `<section class="result fail"><b class="grow" style="font-size:20px">${C.score} of ${C.qs.length} · ${need} needed</b>
+      <a class="btn ghost" href="#/read/${id}/${n}">Read again</a><button class="btn" data-act="retryCheck" data-key="${key}">Try again</button></section>`;
   else if (C.passed) foot = `<section class="result"><div class="grow stack" style="gap:4px"><b style="font-size:20px">${C.score} из ${C.qs.length} · ${isFinal ? 'книга прочитана!' : 'глава засчитана'}</b>
       <span style="color:var(--dark-muted)">${C.mins ? '+' + coins(C.mins) : 'Эта глава уже была засчитана'}${C.note ? ' · ' + esc(C.note) : ''}</span></div>
       <a class="btn amber" href="${isFinal ? '#/book/' + id + '?from=home' : n < book.chapters.length ? '#/read/' + id + '/' + (n + 1) : '#/home'}">${isFinal ? 'Оценить книгу' : n < book.chapters.length ? 'Глава ' + (n + 1) + ' ›' : 'На полку'}</a></section>`;
   else foot = `<section class="result fail"><b class="grow" style="font-size:20px">${C.score} из ${C.qs.length} · нужно ${need}</b>
       ${isFinal ? '' : `<a class="btn ghost" href="#/read/${id}/${n}">Перечитать</a>`}<button class="btn" data-act="retryCheck" data-key="${key}">Ещё раз</button></section>`;
-  return `<div class="page white full">
-    <header class="head">${backBtn(isFinal ? 'home' : 'read/' + id + '/' + n)}<h1>${isFinal ? 'Финальная проверка' : 'Проверка · глава ' + n}</h1>${info(isFinal ? 'final' : 'quiz')}</header>
+  return `<div class="page white full"${EN() ? ' lang="en"' : ''}>
+    <header class="head">${backBtn(isFinal ? 'home' : 'read/' + id + '/' + n)}<h1>${EN() ? esc(BOOKS[id].short) : isFinal ? 'Финальная проверка' : 'Проверка · глава ' + n}</h1>${info(EN() ? 'en_quiz' : isFinal ? 'final' : 'quiz')}</header>
     ${qHtml}${foot}</div>`;
 };
 
@@ -1104,7 +1114,7 @@ function submitCheck(key) {
     // Hard words of a finished chapter join his list even if he did not tap them.
     hardIds(ch).forEach(w => {
       const g = book.glossary[w];
-      if (g && !g.g && !wordFor(id, w, g) && !words.some(x => baseKey(x.base) === baseKey(g.base))) words.push(newWord(id, w, g.base, 'book'));
+      if (g && !g.g && !g.soft && !wordFor(id, w, g) && !words.some(x => baseKey(x.base) === baseKey(g.base))) words.push(newWord(id, w, g.base, 'book'));
     });
     C.qs.forEach((q, qi) => {
       if (!q.qword) return;
@@ -1115,7 +1125,10 @@ function submitCheck(key) {
       if (k > -1) words[k] = merged; else words.push(merged);
     });
     const already = passedCh(id) >= n;
-    if (C.passed && !already) {
+    if (EN() && C.passed && !already) {
+      // Her stories are one chapter each and pay nothing: passing the questions finishes the story.
+      ops.push({ t: 'Progress', rows: [Object.assign({ book_id: id, started: today() }, progressOf(id) || {}, { status: 'done', chapters_passed: n, finished: today(), final_score: C.score, updated: today() })] });
+    } else if (C.passed && !already) {
       mins = chMins(b, ch.words);
       C.rankBefore = rankIdx(words90());
       ops.push(ledger('chapter', mins, id + ':' + n));
@@ -1198,16 +1211,23 @@ function wordQ(w, g, pool, forceMeaning) {
   }
   return Object.assign(base, { tag: 'Значение', prompt: g.base, sub: 'Что это значит?' }, shuffle(g.m.o, w.key + 'm' + (forceMeaning ? '2' : '')));
 }
+const BZ_EN = { 'Значение': 'Meaning', 'Что это значит?': 'What does it mean?', 'В предложении': 'In a sentence', 'Какое слово подходит?': 'Which word fits?', 'Слово по значению': 'Word from its meaning', 'Какое это слово?': 'Which word is it?' };
 function caseQ(c) { return Object.assign({ key: 'case:' + c.id, kind: 'case', label: c.p.replace('…', c.o[0]), tag: 'Падежи', prompt: c.p, sub: c.sub }, shuffle(c.o, c.id)); }
 
 VIEWS.blitz = async () => {
   const B = UI.bz;
   const s = S();
-  const head = `<header class="head"><a class="icon-btn" href="#/home" aria-label="Назад" style="background:transparent;border-color:#2B3344;color:#FFFFFF">${ICON.back}</a>
-    <h1 class="row" style="gap:8px">${ICON.bolt}Блиц</h1>${info('blitz')}<span class="small" style="color:var(--dark-muted)">Рекорд ${num(s.best_blitz, 0)}</span></header>`;
+  const head = `<header class="head"><a class="icon-btn" href="#/home" aria-label="${L('Назад', 'Back')}" style="background:transparent;border-color:#2B3344;color:#FFFFFF">${ICON.back}</a>
+    <h1 class="row" style="gap:8px">${ICON.bolt}${L('Блиц', 'Blitz')}</h1>${info(EN() ? 'en_blitz' : 'blitz')}<span class="small" style="color:var(--dark-muted)">${L('Рекорд', 'Best')} ${num(s.best_blitz, 0)}</span></header>`;
   if (!B || B.phase === 'intro') {
     const round = await buildRound();
     UI.bz = { phase: 'intro', round };
+    if (EN()) return `<div class="page dark full" lang="en">${head}
+      <section class="stack" style="margin-top:80px;align-items:center;text-align:center;gap:18px">
+        <div style="font-size:96px;font-weight:700;line-height:1">${round.length || '—'}</div>
+        <div style="font-size:20px;color:var(--dark-muted)">${round.length ? round.length + (round.length === 1 ? ' question' : ' questions') + (round.filter(q => !q.practice).length ? ' · ' + round.filter(q => !q.practice).length + ' for today, the rest is practice' : ' · practice') : 'Words for Blitz come from your stories. Read a story and answer its questions, and they will appear.'}</div>
+        ${round.length ? '<button class="btn amber" data-act="bzStart" style="margin-top:20px;padding:18px 64px;font-size:20px">Start · ' + (BZ_SECS / 60) + ' min</button>' : ''}
+      </section></div>`;
     return `<div class="page dark full">${head}
       <section class="stack" style="margin-top:80px;align-items:center;text-align:center;gap:18px">
         <div style="font-size:96px;font-weight:700;line-height:1">${round.length || '—'}</div>
@@ -1217,27 +1237,27 @@ VIEWS.blitz = async () => {
   }
   if (B.phase === 'run') {
     const q = B.round[B.qi] || B.round[B.round.length - 1];
-    return `<div class="page dark full">${head}
+    return `<div class="page dark full"${EN() ? ' lang="en"' : ''}>${head}
       <div class="row" style="gap:18px"><b id="bzT" style="font-size:32px;width:56px;font-variant-numeric:tabular-nums">${B.t}</b>
         <div class="bar amber grow" style="height:10px;background:var(--dark-line)"><i id="bzBar" style="width:${Math.round(B.t / BZ_SECS * 100)}%;transition:width 1s linear"></i></div>
         <b style="font-size:20px"><span style="color:#8FE3B5">✓</span> ${B.score}</b></div>
       <section class="stack" style="min-height:240px;padding-top:20px;gap:12px">
-        <span class="bz-tag ${q.kind === 'case' ? 'case' : ''}">${q.tag}</span>
+        <span class="bz-tag ${q.kind === 'case' ? 'case' : ''}">${EN() ? BZ_EN[q.tag] || q.tag : q.tag}</span>
         <div style="font-size:34px;font-weight:700;line-height:1.3">${esc(q.prompt)}</div>
-        <div style="font-size:19px;color:var(--dark-muted)">${esc(q.sub)}</div></section>
+        <div style="font-size:19px;color:var(--dark-muted)">${esc(EN() ? BZ_EN[q.sub] || q.sub : q.sub)}</div></section>
       <div class="grid2" style="gap:12px">${q.opts.map((o, j) => `<button class="bz-opt" data-act="bzPick" data-j="${j}">${esc(o)}</button>`).join('')}</div>
       <div style="min-height:28px;font-size:18px;font-weight:600;color:${B.fbOk ? '#8FE3B5' : '#FF9C97'}">${esc(B.fb || '')}</div></div>`;
   }
   const won = B.qi >= BZ_MIN;
-  return `<div class="page dark full">${head}
+  return `<div class="page dark full"${EN() ? ' lang="en"' : ''}>${head}
     <section class="stack" style="margin-top:30px;gap:10px">
-      <div style="font-size:64px;font-weight:700;line-height:1">${B.score} верно</div>
-      <div style="font-size:20px;color:var(--amber);font-weight:600">${won ? '+' + coins(bzMins(B.score, B.qi)) : ''}</div>
+      <div style="font-size:64px;font-weight:700;line-height:1">${B.score} ${L('верно', 'right')}</div>
+      <div style="font-size:20px;color:var(--amber);font-weight:600">${won && !EN() ? '+' + coins(bzMins(B.score, B.qi)) : ''}</div>
       <div class="stack" style="margin-top:20px;gap:6px">${B.log.map(l => `<div class="row" style="gap:16px;padding:12px 16px;border-radius:12px;background:var(--dark2)">
         <div class="grow" style="font-size:18px">${esc(l.label)}</div>
         <div class="dots">${[0, 1, 2].map(i => '<i class="' + (i < l.s ? 'on' : '') + '"></i>').join('')}</div>
-        <div style="width:170px;text-align:right;font-size:14px;color:var(--dark-muted)">${l.practice ? 'повторение' : l.s >= 3 ? (l.learned ? 'выучено!' : 'отдыхает месяц') : l.ok ? 'дальше — в другой день' : 'заново'}</div></div>`).join('')}</div>
-      <div class="row" style="margin-top:22px"><a class="btn ghost" href="#/home" style="color:#FFFFFF;border-color:#5B6475">На полку</a><button class="btn amber" data-act="bzAgain">Ещё раунд</button></div>
+        <div style="width:170px;text-align:right;font-size:14px;color:var(--dark-muted)">${l.practice ? L('повторение', 'practice') : l.s >= 3 ? (l.learned ? L('выучено!', 'learned!') : L('отдыхает месяц', 'rests for a month')) : l.ok ? L('дальше — в другой день', 'next step another day') : L('заново', 'starts again')}</div></div>`).join('')}</div>
+      <div class="row" style="margin-top:22px"><a class="btn ghost" href="#/home" style="color:#FFFFFF;border-color:#5B6475">${L('На полку', 'Home')}</a><button class="btn amber" data-act="bzAgain">${L('Ещё раунд', 'Another round')}</button></div>
     </section></div>`;
 };
 
@@ -1282,7 +1302,7 @@ function bzPick(j) {
   }
   B.qi++;
   B.score += ok ? 1 : 0;
-  B.fb = ok ? 'Верно' : 'Правильно: ' + q.opts[q.a];
+  B.fb = ok ? L('Верно', 'Right') : L('Правильно: ', 'Right answer: ') + q.opts[q.a];
   B.fbOk = ok;
   if (B.qi >= B.round.length) bzEnd(); else render();
 }
@@ -1301,13 +1321,13 @@ function bzEnd() {
   const rows = Object.values(B.changed);
   if (rows.length) ops.push({ t: 'Words', rows });
   ops.push({ t: 'Checks', rows: [{ id: rid(), date: today(), book_id: 'blitz', chapter: 'blitz', score: B.score, total: B.qi, passed: B.qi >= BZ_MIN, mins: bzMins(B.score, B.qi), words: 0 }] });
-  if (bzMins(B.score, B.qi)) ops.push(ledger('blitz', bzMins(B.score, B.qi)));
+  if (bzMins(B.score, B.qi) && !EN()) ops.push(ledger('blitz', bzMins(B.score, B.qi)));
   bump('bzOld', B.old); bump('cases', B.cases);
   // Words that went to rest for a month nudge the language age.
   const rested = rows.filter(r => r.st === 'archived' || r.st === 'learned').length;
   const set = {};
   if (B.score > num(s.best_blitz, 0)) set.best_blitz = B.score;
-  if (rested) {
+  if (rested && !EN()) {
     let prog = num(s.lang_prog, 0) + rested * 0.03, months = langMonths();
     if (prog >= 1) { months += 1; prog -= 1; }
     set.lang_months = months; set.lang_prog = Math.round(prog * 100) / 100;
@@ -1762,7 +1782,8 @@ EN_VIEWS.home = () => {
     ${enStoriesHtml()}
   </div>`;
 };
-['me', 'library', 'quests', 'collection', 'blitz', 'shelf', 'parent'].forEach(k => { EN_VIEWS[k] = EN_VIEWS.home; });
+const EN_SHARED = ['read', 'check', 'blitz'];
+['me', 'library', 'quests', 'collection', 'shelf', 'parent'].forEach(k => { EN_VIEWS[k] = EN_VIEWS.home; });
 
 EN_VIEWS.test = async () => {
   if (placed() && levelDueIn() > 0 && !(UI.test && UI.test.en && UI.test.phase === 'done')) { location.hash = '#/home'; return null; }
@@ -2168,7 +2189,7 @@ function connectFromLink(q) {
 // ------------------------------------------------------------ events ---
 
 const ACTS = {
-  info: el => openSheet('<div style="font-size:18px;line-height:1.55">' + esc(INFO[el.dataset.k] || '') + '</div><button class="btn dark" data-act="closeSheet" style="align-self:flex-end">Понятно</button>', true),
+  info: el => openSheet('<div style="font-size:18px;line-height:1.55">' + esc(INFO[el.dataset.k] || '') + '</div><button class="btn dark" data-act="closeSheet" style="align-self:flex-end">' + L('Понятно', 'Got it') + '</button>', true),
   closeSheet: () => closeSheet(),
   zoom: el => {
     const w = $('#sheet');
@@ -2369,119 +2390,25 @@ const ACTS = {
   },
 };
 
-// English stories: short texts written for her level (drive/mum/stories_en.json, made by private/prep/build_en_stories.py).
-// Tap a word or phrase for its Russian meaning. Each tapped place is a Words row (book_id = story, src 'tap'),
-// so we can see which words she needed; a few questions at the end are a Checks row (chapter 'q',
-// mins = minutes she spent reading), and Progress marks the story read.
-let ENS = null;
-async function loadStories() { ENS = await content('stories_en.json'); return ENS; }
-const EN_TOKEN = /[^\W_]+(?:['’-][^\W_]+)*/gu;
-const enNorm = w => w.toLowerCase().replace(/’/g, "'");
-const enStory = id => ENS && (ENS.stories || []).find(s => s.id === id);
+// English stories: short books written for her level (drive/mum/catalog.json and en1.json …, made by
+// private/prep/build_en_stories.py). They open in his reader: underlined words join her Блиц when she
+// passes the questions, and every other word can be tapped too (no underline; it joins the list if tapped).
 const EN_LEVEL = { A2: 'Easier', 'A2+': 'Medium', B1: 'Harder' };
 function enStoriesHtml() {
-  if (!ENS) {
-    loadStories().then(() => { if (route().name === 'home') render(); }).catch(() => {});
-    return `<section class="card stack" style="gap:8px"><b style="font-size:19px">English stories</b><div class="muted">Loading…</div></section>`;
-  }
+  const ids = LIB_ORDER.filter(id => BOOKS[id]);
+  const due = dueCount();
+  const blitz = `<a class="tile dark" href="#/blitz" style="min-height:0"><div class="t">${ICON.bolt}Blitz</div><div style="color:var(--dark-muted)">${due ? due + (due === 1 ? ' word' : ' words') + ' for today' : (D.words || []).length ? 'Nothing for today' : 'Your words from the stories'}</div></a>`;
   return `<section class="stack" style="gap:12px"><h2 style="margin:0">English stories</h2>
-    <div class="muted">Written for your level. Tap any word you don't know to see it in Russian.</div>
-    ${(ENS.stories || []).map((s, k) => {
-      const p = progressOf(s.id), done = p && p.status === 'done';
-      return `<a class="card row" href="#/story/${esc(s.id)}" style="gap:16px;align-items:flex-start"><div class="grow stack" style="gap:4px">
-        <span class="small muted">Story ${k + 1} · ${EN_LEVEL[s.level] || esc(s.level)} · about ${Math.max(5, Math.round(s.words / 90))} minutes</span>
-        <b style="font-size:20px">${esc(s.title)}</b>${s.author ? `<span class="small muted">by ${esc(s.author)}</span>` : ''}<span class="muted">${esc(s.blurb)}</span></div>
+    <div class="muted">Written for your level. The underlined words are new and worth learning; tap any word to see it in Russian.</div>
+    ${ids.length ? ids.map((id, k) => {
+      const b = BOOKS[id], p = progressOf(id), done = p && p.status === 'done';
+      return `<a class="card row" href="#/read/${esc(id)}/1" style="gap:16px;align-items:flex-start"><div class="grow stack" style="gap:4px">
+        <span class="small muted">Story ${k + 1} · ${EN_LEVEL[b.level] || esc(b.level || '')} · about ${Math.max(5, Math.round(b.words / 90 / 5) * 5)} minutes</span>
+        <b style="font-size:20px">${esc(b.title)}</b><span class="small muted">by ${esc(authorOf(b).name)}</span><span class="muted">${esc(b.oneLiner || '')}</span></div>
         <span class="pill ${done ? 'green' : ''}">${done ? '✓ Read' : p ? 'Continue ›' : 'Read ›'}</span></a>`;
-    }).join('')}</section>`;
+    }).join('') : '<div class="muted">Loading…</div>'}
+    ${blitz}</section>`;
 }
-function enTapped(sid) { return (D.words || []).filter(w => w.book_id === sid && w.src === 'tap'); }
-EN_VIEWS.story = async r => {
-  try { await loadStories(); } catch (e) { location.hash = '#/home'; return null; }
-  const s = enStory(r.a);
-  if (!s) { location.hash = '#/home'; return null; }
-  if (!UI.es || UI.es.id !== s.id) {
-    const toks = [];
-    s.paras.forEach(p => { (p.match(EN_TOKEN) || []).forEach(w => toks.push(w)); });
-    UI.es = { id: s.id, t0: Date.now(), phase: 'read', ans: {}, toks, norm: toks.map(enNorm), sel: null };
-    if (!progressOf(s.id)) save([{ t: 'Progress', rows: [{ book_id: s.id, status: 'reading', started: today(), updated: today() }] }]);
-  }
-  const E = UI.es, back = `<a class="icon-btn" href="#/home" aria-label="Back">${ICON.back}</a>`;
-  if (E.phase === 'read') {
-    let i = 0;
-    const paras = s.paras.map(p => '<p>' + p.replace(EN_TOKEN, w => `\u0001${i++}\u0002${w}\u0003`).split(/(\u0001\d+\u0002[^\u0003]*\u0003)/).map(part => {
-      const m = /^\u0001(\d+)\u0002([^\u0003]*)\u0003$/.exec(part);
-      return m ? `<span class="ew" data-act="enWord" data-i="${m[1]}">${esc(m[2])}</span>` : esc(part);
-    }).join('') + '</p>').join('');
-    return `<div class="page white full" lang="en"><header class="head">${back}<h1 style="font-size:24px">${esc(s.title)}</h1></header>
-      ${s.author ? `<div class="muted" style="margin-top:-8px">by ${esc(s.author)}</div>` : ''}<article class="estory">${paras}</article>
-      <button class="btn" data-act="enDone" style="align-self:flex-start;margin:8px 0 24px">I've finished reading</button>
-      <div class="ewpop" id="ewpop" hidden></div></div>`;
-  }
-  const qs = s.qs.map((q, k) => Object.assign({}, q, { order: seeded(q.o.map((_, j) => j), s.id + 'q' + k) }));
-  if (E.phase === 'q') {
-    const all = qs.every((_, k) => E.ans[k] != null);
-    return `<div class="page white full" lang="en"><header class="head">${back}<h1 style="font-size:24px">${esc(s.title)}</h1></header>
-      <div class="muted" style="font-size:18px">A few questions about the story. No hurry, and you can look back at the text.</div>
-      ${qs.map((q, k) => `<section class="stack" style="gap:8px"><b style="font-size:19px">${k + 1}. ${esc(q.q)}</b>
-        ${q.order.map(j => `<button class="opt ${E.ans[k] === j ? 'sel' : ''}" style="min-height:56px;font-size:18px;text-align:left" data-act="enAns" data-k="${k}" data-j="${j}">${esc(q.o[j])}</button>`).join('')}</section>`).join('')}
-      <div class="row" style="gap:10px;margin-bottom:24px"><button class="btn ghost" data-act="enReread">Back to the text</button>
-        <button class="btn" data-act="enCheck" ${all ? '' : 'disabled'}>Check my answers</button></div></div>`;
-  }
-  const score = qs.filter((q, k) => E.ans[k] === q.a).length;
-  const taps = enTapped(s.id).filter(w => w.added === today());
-  return `<div class="page white full" lang="en"><header class="head">${back}<h1 style="font-size:24px">${esc(s.title)}</h1></header>
-    <section class="darkcard stack" style="gap:8px"><div style="font-size:40px;font-weight:700">${score} of ${qs.length}</div>
-      <div>${score === qs.length ? 'You understood everything. Wonderful!' : score >= 3 ? 'You understood the story well.' : 'This one was hard. That is fine: the next ones will help.'}</div></section>
-    ${qs.map((q, k) => `<div class="stack" style="gap:2px"><b>${k + 1}. ${esc(q.q)}</b><span style="color:${E.ans[k] === q.a ? 'var(--green-ink, #2E7D4F)' : 'var(--ink2)'}">${E.ans[k] === q.a ? '✓ ' : '→ '}${esc(q.o[q.a])}</span></div>`).join('')}
-    ${taps.length ? `<section class="card stack" style="gap:6px"><b>Words you looked up</b>${taps.map(w => `<div><b>${esc(w.base)}</b> — <span lang="ru">${esc(s.gloss[w.base] || '')}</span></div>`).join('')}</section>` : ''}
-    <a class="btn" href="#/home" style="align-self:flex-start;margin-bottom:24px">Back to the stories</a></div>`;
-};
-// The longest glossed phrase around word i, else the word itself.
-function enLookup(s, E, i) {
-  for (let n = 6; n >= 2; n--) {
-    for (let a = Math.max(0, i - n + 1); a <= i && a + n <= E.norm.length; a++) {
-      const key = E.norm.slice(a, a + n).join(' ');
-      if (s.gloss[key]) return { key, a, b: a + n - 1, ru: s.gloss[key] };
-    }
-  }
-  const w = E.norm[i], base = w.replace(/'s$/, '');
-  if (s.gloss[w]) return { key: w, a: i, b: i, ru: s.gloss[w] };
-  if (s.gloss[base]) return { key: base, a: i, b: i, ru: s.gloss[base] };
-  return { key: w, a: i, b: i, ru: /^[A-Z]/.test(E.toks[i]) ? 'имя или название' : '' };
-}
-function enShowWord(i) {
-  const E = UI.es, s = enStory(E.id), pop = $('#ewpop');
-  if (!s || !pop) return;
-  document.querySelectorAll('.ew.on').forEach(x => x.classList.remove('on'));
-  const L = enLookup(s, E, i);
-  for (let k = L.a; k <= L.b; k++) { const el = document.querySelector('.ew[data-i="' + k + '"]'); if (el) el.classList.add('on'); }
-  pop.hidden = false;
-  pop.innerHTML = `<b>${esc(E.toks.slice(L.a, L.b + 1).join(' '))}</b><span lang="ru">${L.ru ? esc(L.ru) : '<span class="muted">no translation here yet</span>'}</span>`;
-  // In a phrase, the tapped word's own meaning too.
-  const one = L.b > L.a && (s.gloss[E.norm[i]] || s.gloss[E.norm[i].replace(/'s$/, '')]);
-  if (one) pop.innerHTML += `<span class="small" style="color:#C3CAD6">${esc(E.toks[i])} — <span lang="ru">${esc(one)}</span></span>`;
-  const key = E.id + ':' + L.a;
-  if (L.ru !== 'имя или название' && !(D.words || []).some(w => w.key === key)) save([{ t: 'Words', rows: [{ key, book_id: E.id, word_id: L.a, base: L.key, st: 'tap', s: 0, due: '', misses: 0, src: 'tap', added: today(), last: today() }] }]);
-}
-Object.assign(ACTS, {
-  enWord: el => enShowWord(Number(el.dataset.i)),
-  enDone: () => { UI.es.phase = 'q'; UI.es.mins = Math.max(1, Math.round((Date.now() - UI.es.t0) / 60000)); render(); window.scrollTo(0, 0); },
-  enReread: () => { UI.es.phase = 'read'; render(); },
-  enAns: el => { UI.es.ans[el.dataset.k] = Number(el.dataset.j); render(); },
-  enCheck: () => {
-    const E = UI.es, s = enStory(E.id);
-    if (!s) return;
-    const score = s.qs.filter((q, k) => E.ans[k] === q.a).length, p = progressOf(s.id) || {};
-    save([{ t: 'Checks', rows: [{ id: rid(), date: today(), book_id: s.id, chapter: 'q', score, total: s.qs.length, passed: score >= 3, mins: E.mins || 0, words: s.words }] },
-      { t: 'Progress', rows: [Object.assign({ book_id: s.id, started: today() }, p, { status: 'done', finished: today(), final_score: score, updated: today() })] }]);
-    E.phase = 'done';
-    render(); window.scrollTo(0, 0);
-  },
-});
-document.addEventListener('click', e => {
-  const pop = $('#ewpop');
-  if (pop && !pop.hidden && !e.target.closest('.ew,.ewpop')) { pop.hidden = true; document.querySelectorAll('.ew.on').forEach(x => x.classList.remove('on')); }
-});
 
 document.addEventListener('click', e => {
   const el = e.target.closest('[data-act]');
