@@ -13,10 +13,10 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const num = (v, d) => (isFinite(parseFloat(v)) ? parseFloat(v) : d);
 const yes = v => v === true || v === 'true';
-const fmt = n => Number(n).toLocaleString('ru-RU');
+const fmt = n => Number(n).toLocaleString(EN() ? 'en-GB' : 'ru-RU');
 const IS_LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 
-const APP_VERSION = 39; // keep equal to the number in sw.js's CACHE name
+const APP_VERSION = 40; // keep equal to the number in sw.js's CACHE name
 
 // The English copy lives at /polka-en/ (outside this app's scope, so phones keep them as two apps)
 // and loads its code from /polka/. It keeps its own storage keys.
@@ -40,18 +40,21 @@ function monthsBetween(from, to) {
   const a = parseIso(from), b = parseIso(to);
   return (b.getFullYear() - a.getFullYear()) * 12 + b.getMonth() - a.getMonth() - (b.getDate() < a.getDate() ? 1 : 0);
 }
-function plural(n, one, few, many) {
+/** Russian plural forms; on her English screens the English forms en1/enN when given. */
+function plural(n, one, few, many, en1, enN) {
+  if (en1 != null && EN()) return n === 1 ? en1 : enN;
   const a = n % 10, b = n % 100;
   return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many;
 }
 // Rewards are coins (1 coin was 1 screen minute; the Ledger column is still called mins).
-function coinWord(n) { return plural(Math.abs(num(n, 0)), 'монета', 'монеты', 'монет'); }
+function coinWord(n) { return plural(Math.abs(num(n, 0)), 'монета', 'монеты', 'монет', 'coin', 'coins'); }
 function coins(n) { return n + ' ' + coinWord(n); }
 const screenOn = () => yes(S().screen_on);
 /** 2026-11-21 → 21 ноября 2026 */
 function dateRu(iso) {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ''));
   if (!m) return '';
+  if (EN()) return Number(m[3]) + ' ' + ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'][Number(m[2]) - 1] + ' ' + m[1];
   const M = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
   return Number(m[3]) + ' ' + M[Number(m[2]) - 1] + ' ' + m[1];
 }
@@ -59,7 +62,8 @@ function dateRu(iso) {
 function readWhen(p) {
   if (!p || !p.finished) return '';
   const a = String(p.started || '').slice(0, 10), b = String(p.finished).slice(0, 10);
-  if (!a || a === b) return 'Прочитана ' + dateRu(b);
+  if (!a || a === b) return L('Прочитана ', 'Read on ') + dateRu(b);
+  if (EN()) return 'Read from ' + dateRu(a) + ' to ' + dateRu(b);
   return 'Читал с ' + (a.slice(0, 7) === b.slice(0, 7) ? Number(a.slice(8, 10)) : dateRu(a).replace(/ \d{4}$/, a.slice(0, 4) === b.slice(0, 4) ? '' : ' ' + a.slice(0, 4))) + ' по ' + dateRu(b);
 }
 /** 9 лет 3 мес. */
@@ -202,7 +206,7 @@ async function content(name, fresh) {
 }
 async function loadBook(id) {
   const b = BOOKS[id];
-  if (!b || !b.ready) throw new Error('Эту книгу я ещё готовлю');
+  if (!b || !b.ready) throw new Error(L('Эту книгу я ещё готовлю', 'This story is not ready yet'));
   return content(id + '.json');
 }
 function bookNow(id) { return JSONCACHE[id + '.json'] || null; }
@@ -308,7 +312,8 @@ function aiLeftHtml(style) { return aiLeft() === Infinity ? '' : `<span class="s
 
 // Difficulty: harder books pay more (capped at +25%), easier ones less. More than 2 years above: "later".
 const MULT = { '-2': 0.75, '-1': 0.9, '0': 1, '1': 1.15, '2': 1.25 };
-function ageDiff(b) { return b.age - Math.floor(langMonths() / 12); }
+// Her stories carry a CEFR level instead of an age; nothing is locked or weighted for her.
+function ageDiff(b) { return EN() ? 0 : b.age - Math.floor(langMonths() / 12); }
 function tooHard(b) { return ageDiff(b) > 2; }
 function mult(b) { return MULT[String(Math.max(-2, Math.min(2, ageDiff(b))))]; }
 const ru = x => String(x).replace('.', ',');
@@ -318,12 +323,13 @@ function bookMins(b) { return Math.round(readMins(b.words, b)); }
 function finalMins(b) { return Math.round(bookMins(b) * num(S().final_pct, 50) / 100); }
 // A printed page of a Russian children's book holds about 230 words.
 function pagesOf(b) { const n = num(b.words, 0) / 230; return n < 10 ? Math.max(1, Math.round(n)) : Math.round(n / 5) * 5; }
-function pagesText(b) { return '≈ ' + pagesOf(b) + ' стр.'; }
+function pagesText(b) { return '≈ ' + pagesOf(b) + L(' стр.', ' pages'); }
 function readHours(b) {
   const m = b.words / wpm();
-  return m < 60 ? '≈ ' + Math.max(5, Math.round(m / 5) * 5) + ' мин чтения' : '≈ ' + ru(Math.round(m / 30) / 2) + ' ч чтения';
+  return m < 60 ? '≈ ' + Math.max(5, Math.round(m / 5) * 5) + L(' мин чтения', ' min reading') : '≈ ' + L(ru(Math.round(m / 30) / 2), String(Math.round(m / 30) / 2)) + L(' ч чтения', ' h reading');
 }
 function levelChip(b) {
+  if (EN()) return '<span class="lvl eq">' + esc(b.level || '') + (EN_LEVEL[b.level] ? ' · ' + EN_LEVEL[b.level] : '') + '</span>';
   const d = ageDiff(b);
   if (d > 2) return '<span class="lvl later">' + b.age + '+ лет</span>';
   return '<span class="lvl ' + (d > 0 ? 'up' : d < 0 ? 'down' : 'eq') + '">' + b.age + '+ лет · ×' + ru(mult(b)) + '</span>';
@@ -441,13 +447,15 @@ function render() {
     drawPin();
     return;
   }
-  const view = (EN() && (EN_VIEWS[r.name] || (EN_SHARED.indexOf(r.name) > -1 ? VIEWS[r.name] : EN_VIEWS.home))) || VIEWS[r.name] || VIEWS.home;
+  if (EN()) useEnglishRules();
+  const view = (EN() && EN_VIEWS[r.name]) || VIEWS[r.name] || VIEWS.home;
   if (r.name !== 'read') leaveReader();
   if (r.name !== 'mread') UI.m = null;
   // A parent's trial test is forgotten as soon as they leave it, so he never sees it.
   if (r.name !== 'test' && UI.test && UI.test.trial) { UI.test = null; UI.testTry = false; }
   const tabs = $('#tabs');
-  tabs.hidden = EN() || TABS.indexOf(r.name) < 0;
+  tabs.hidden = TABS.indexOf(r.name) < 0;
+  if (EN()) tabs.querySelectorAll('a').forEach(a => { const t = TAB_EN[a.dataset.tab], n = a.lastChild; if (t && n && n.nodeType === 3) n.textContent = t; });
   tabs.querySelectorAll('a').forEach(a => a.classList.toggle('on', a.dataset.tab === r.name));
   const out = view(r);
   const at = location.hash;
@@ -473,9 +481,24 @@ const ICON = {
 };
 /** Her English screens reuse his reader, check and Блиц: the same screens with English words. */
 const L = (ru, en) => (EN() ? en : ru);
-const info = key => '<button class="info" data-act="info" data-k="' + key + '" aria-label="Подробнее">i</button>';
-const backBtn = to => '<a class="icon-btn" href="#/' + to + '" aria-label="Назад">' + ICON.back + '</a>';
+const EN_LEVEL = { A2: 'Easier', 'A2+': 'Medium', B1: 'Harder', 'B1+': 'Harder', B2: 'Challenging' };
+const TAB_EN = { home: 'Shelf', library: 'Library', quests: 'Quests', collection: 'Collection', me: 'My level' };
+const info = key => '<button class="info" data-act="info" data-k="' + key + '" aria-label="' + L('Подробнее', 'More') + '">i</button>';
+const backBtn = to => '<a class="icon-btn" href="#/' + to + '" aria-label="' + L('Назад', 'Back') + '">' + ICON.back + '</a>';
 
+const INFO_EN = {
+  lock: 'A story you have started stays on your shelf until you finish it. Your family can change it earlier.',
+  mult: 'Stories are sorted by level: Easier (A2), Medium (A2+) and Harder (B1 and up). Every story pays coins for reading it and for finishing it.',
+  level: 'Your level on the European scale (A1 to C2), from your vocabulary test. It grows as you finish stories and learn new words. Every three months there is a level check. Your level never goes down.',
+  ranks: 'Your title counts the words you read in the last 3 months. If you stop reading it can go down, and it comes back up when you return to your stories.',
+  bingo: 'Every story you finish stamps one matching square. A row, a column or a diagonal pays +10 coins, the whole card +30 coins. Then you can start a new card with different squares.',
+  blitz: 'Up to 20 questions in 2 minutes, with words from your stories: the underlined ones and the ones you tapped. A word is learned after three right answers on different days: its meaning, the word in a sentence, the word from its meaning. A wrong answer and the word starts again, and it comes back later in the same round. After three answers the word rests for a month, then one more check.',
+  quiz: 'A few questions about the story and two about the underlined words. You need 3 out of 5 right. If it does not go well, read the story again and try once more: the questions will be different.',
+  final: 'The final check is about the whole story.',
+  quests: 'Every day there are three new quests and every week two weekly ones. Combo: do all three quests of the day.',
+  cover: 'How many of the words in a story you probably know.',
+  ai: 'Ask about what you have read.',
+};
 const INFO = {
   lock: 'Начатую книгу нужно дочитать, прежде чем начать следующую. Сменить её раньше можно с разрешения родителя.',
   mult: 'Книги разложены по возрасту: для какого возраста они обычно у носителей языка. Книга выше твоего уровня даёт больше монет, до ×1,25; ниже — меньше, до ×0,75. Слишком сложные откроются, когда твой уровень вырастет.',
@@ -508,7 +531,7 @@ VIEWS.lock = () => `<div class="page full" style="max-width:560px;padding-top:12
 // -------------------------------------------------------------- home ---
 
 function demoBanner() {
-  return connected() ? '' : '<div class="demo">Демо-режим на этом компьютере. PIN для родителей — 1234.</div>';
+  return connected() ? '' : '<div class="demo">' + L('Демо-режим на этом компьютере. PIN для родителей — 1234.', 'Demo mode on this computer. Family PIN: 1234.') + '</div>';
 }
 function shortlist() { return String(S().shortlist || '').split(',').filter(id => BOOKS[id]); }
 
@@ -519,13 +542,14 @@ VIEWS.home = () => {
   const w90 = words90(), ri = rankIdx(w90), R = RANKS[ri], N = RANKS[ri + 1];
   const cal = calibrated();
   const langPct = cal ? num(s.lang_prog, 0) : chapterChecks().filter(c => yes(c.passed)).length / 3;
+  const EL = EN() ? enLevelInfo() : null;
   const tracks = `
     <div class="grid2">
-      <a class="track" href="#/me"><div class="badge" style="background:#121826;color:#F0A42C">${cal ? Math.floor(langMonths() / 12) : '?'}</div>
-        <div class="grow"><div class="row" style="gap:8px;align-items:baseline"><span class="tiny muted">Язык</span><b>${cal ? ym(langMonths()) : 'после 3 проверок'}</b></div>
-        <div class="bar amber" style="margin-top:8px"><i style="width:${Math.round(langPct * 100)}%"></i></div></div></a>
+      <a class="track" href="#/me"><div class="badge" style="background:#121826;color:#F0A42C">${EN() ? (placed() ? EL.c[1] : '?') : cal ? Math.floor(langMonths() / 12) : '?'}</div>
+        <div class="grow"><div class="row" style="gap:8px;align-items:baseline"><span class="tiny muted">${L('Язык', 'English')}</span><b>${EN() ? (placed() ? EL.c[2] : 'after the level test') : cal ? ym(langMonths()) : 'после 3 проверок'}</b></div>
+        <div class="bar amber" style="margin-top:8px"><i style="width:${Math.round((EN() ? EL.pct : langPct) * 100)}%"></i></div></div></a>
       <a class="track" href="#/me"><div class="badge" style="background:${R.bg};color:${R.ink}">${ri + 1}</div>
-        <div class="grow"><div class="row" style="gap:8px;align-items:baseline"><span class="tiny muted">Начитанность</span><b>${R.name}</b></div>
+        <div class="grow"><div class="row" style="gap:8px;align-items:baseline"><span class="tiny muted">${L('Начитанность', 'Reading')}</span><b>${R.name}</b></div>
         <div class="bar" style="margin-top:8px"><i style="width:${N ? Math.round((w90 - R.min) / (N.min - R.min) * 100) : 100}%"></i></div></div></a>
     </div>`;
 
@@ -537,16 +561,16 @@ VIEWS.home = () => {
     const nextCh = Math.min(passed + 1, cur.chapters || 1);
     const bookData = bookNow(s.cur_book);
     const chData = bookData && bookData.chapters[nextCh - 1];
-    const line = allPassed ? 'Все главы пройдены · осталась финальная проверка'
+    const line = EN() ? esc(cur.level || '') + ' · ' + fmt(cur.words) + ' words · ' + readHours(cur).replace('≈ ', 'about ') : allPassed ? 'Все главы пройдены · осталась финальная проверка'
       : 'Глава ' + nextCh + ' из ' + cur.chapters + (chData && chData.title ? ' · ' + esc(chData.title) : '');
     const chPay = chData ? chMins(cur, chData.words) : Math.max(1, Math.round(readMins(cur.words / (cur.chapters || 1), cur)));
     current = `
       <section class="card big current">
-        <a href="#/book/${s.cur_book}" aria-label="О книге">${coverHtml(cur, '150px', 216, 18)}</a>
+        <a href="#/book/${s.cur_book}" aria-label="${L('О книге', 'About the story')}">${coverHtml(cur, '150px', 216, 18)}</a>
         <div class="grow stack" style="gap:8px">
           <div class="row" style="align-items:flex-start;gap:8px">
             <a class="grow" href="#/book/${s.cur_book}" style="font-size:28px;font-weight:700;line-height:1.15">${esc(cur.title)}</a>
-            <button class="lockbtn ${yes(s.locked) ? '' : 'open'}" data-act="info" data-k="lock" aria-label="Почему книга закреплена">${yes(s.locked) ? ICON.lock : ICON.unlock}</button>
+            <button class="lockbtn ${yes(s.locked) ? '' : 'open'}" data-act="info" data-k="lock" aria-label="${L('Почему книга закреплена', 'Why this story stays')}">${yes(s.locked) ? ICON.lock : ICON.unlock}</button>
           </div>
           <div class="muted">${esc(authorOf(cur).short)}</div>
           <div style="line-height:1.45;color:var(--ink2)">${esc(cur.oneLiner || '')}</div>
@@ -554,49 +578,49 @@ VIEWS.home = () => {
           <div class="small muted">${line}</div>
           <div class="row" style="margin-top:auto;padding-top:6px;gap:16px">
             ${cur.ready ? (allPassed
-              ? `<a class="btn" href="#/check/${s.cur_book}/final">Финальная проверка</a>`
-              : `<a class="btn" href="#/read/${s.cur_book}/${nextCh}">${passed ? 'Читать главу ' + nextCh : 'Читать'}</a>`)
-              : '<span class="muted">Книгу ещё готовлю</span>'}
+              ? `<a class="btn" href="#/check/${s.cur_book}/final">${L('Финальная проверка', 'Final check')}</a>`
+              : `<a class="btn" href="#/read/${s.cur_book}/${nextCh}">${passed ? L('Читать главу ', 'Read chapter ') + nextCh : L('Читать', 'Read')}</a>`)
+              : '<span class="muted">' + L('Книгу ещё готовлю', 'Coming soon') + '</span>'}
             <div class="stack" style="gap:2px">
-              ${allPassed ? '' : `<b style="font-size:15px">+${coins(chPay)} за главу</b>`}
-              <span class="small" style="color:var(--amber-ink);font-weight:600">+${coins(finalMins(cur))} за всю книгу</span>
+              ${allPassed || EN() ? '' : `<b style="font-size:15px">+${coins(chPay)} за главу</b>`}
+              <span class="small" style="color:var(--amber-ink);font-weight:600">+${EN() ? coins(chPay + finalMins(cur)) + ' for this story' : coins(finalMins(cur)) + ' за всю книгу'}</span>
             </div>
           </div>
         </div>
       </section>`;
     if (cur.ready && !bookData) loadBook(s.cur_book).then(() => { if (route().name === 'home') render(); }).catch(() => {});
   } else {
-    current = '<section class="card big stack"><b style="font-size:20px">Выбери, что читать</b><div class="muted">Отметь книги ♡ в библиотеке и выбери одну.</div><a class="btn" href="#/library" style="align-self:flex-start">Библиотека</a></section>';
+    current = '<section class="card big stack"><b style="font-size:20px">' + L('Выбери, что читать', 'Choose what to read') + '</b><div class="muted">' + L('Отметь книги ♡ в библиотеке и выбери одну.', 'Mark stories with ♡ in the library and choose one.') + '</div><a class="btn" href="#/library" style="align-self:flex-start">' + L('Библиотека', 'Library') + '</a></section>';
   }
 
   const short = shortlist().filter(id => id !== s.cur_book);
   const shortHtml = short.length ? '<div class="row" style="gap:14px;overflow-x:auto;padding-bottom:4px">' + short.map(id => {
     const b = BOOKS[id];
     return `<a class="shortcard ${s.next_book === id ? 'next' : ''}" href="#/book/${id}">${coverHtml(b, '118px', 170, 14)}
-      <b style="font-size:14px;line-height:1.25">${esc(b.short)}</b>${s.next_book === id ? '<span class="tiny" style="color:var(--blue);font-weight:700">✓ Следующая</span>' : ''}</a>`;
-  }).join('') + '</div>' : '<a class="empty" href="#/library">♡ Отмечай книги в библиотеке</a>';
+      <b style="font-size:14px;line-height:1.25">${esc(b.short)}</b>${s.next_book === id ? '<span class="tiny" style="color:var(--blue);font-weight:700">' + L('✓ Следующая', '✓ Next') + '</span>' : ''}</a>`;
+  }).join('') + '</div>' : '<a class="empty" href="#/library">' + L('♡ Отмечай книги в библиотеке', '♡ Mark stories you want to read in the library') + '</a>';
 
   const due = dueCount();
   const q = questList(), qDone = q.filter(x => x.p >= x.n).length, nextQ = q.find(x => x.p < x.n);
   return `<div class="page">
     ${demoBanner()}
-    <header class="head"><h1>Книжная полка</h1>
+    <header class="head"><h1>${L('Книжная полка', enName() ? 'Hello, ' + esc(enName()) : 'My bookshelf')}</h1>
       <div class="coin">${ICON.coin}<b>${bal}</b><span class="muted">${coinWord(bal)}${pend ? ' · ' + pend.mins + ' ждут' : ''}</span></div>
       ${screenOn() ? `<button class="btn small dark" data-act="redeem" ${pend || bal < 15 ? 'disabled' : ''}>Потратить</button>` : mangaOn() ? '<a class="btn small dark" href="#/manga">Потратить</a>' : ''}
     </header>
     ${tracks}
-    ${!placed() ? `<a class="card row" href="#/test" style="gap:14px"><span style="font-size:28px">🧭</span><div class="grow"><b>Тест на уровень · 6 минут</b><div class="small muted">Узнай, какие книги тебе по силам</div></div><span class="pill">Начать ›</span></a>`
+    ${EN() ? enTestCard() : !placed() ? `<a class="card row" href="#/test" style="gap:14px"><span style="font-size:28px">🧭</span><div class="grow"><b>Тест на уровень · 6 минут</b><div class="small muted">Узнай, какие книги тебе по силам</div></div><span class="pill">Начать ›</span></a>`
       : levelDue() ? `<a class="card row" href="#/test" style="gap:14px"><span style="font-size:28px">🧭</span><div class="grow"><b>${vtRecal() ? 'Новый тест словаря' : 'Проверка уровня'} · 6 минут · +${coins(LEVEL_REWARD)}</b><div class="small muted">${vtRecal() ? 'Точнее прежнего: слова сравниваются с ответами русских школьников' : 'Прошло три месяца — посмотрим, насколько ты вырос'}</div></div><span class="pill">Начать ›</span></a>` : ''}
     ${current}
     <section class="stack" style="gap:12px">
-      <div class="row"><h2 class="grow" style="margin:0">Хочу прочитать</h2><a class="pill" href="#/library">Библиотека ›</a></div>
+      <div class="row"><h2 class="grow" style="margin:0">${L('Хочу прочитать', 'Want to read')}</h2><a class="pill" href="#/library">${L('Библиотека ›', 'Library ›')}</a></div>
       ${shortHtml}
     </section>
     <div class="grid2">
-      <a class="tile dark" href="#/blitz"><div class="t">${ICON.bolt}Блиц</div><div style="color:var(--dark-muted)">${due ? 'На сегодня ' + due : 'На сегодня всё'}</div></a>
-      <a class="tile light" href="#/quests"><div class="t">Задания<span class="small muted" style="margin-left:auto">${qDone} из ${q.length}</span></div>
+      <a class="tile dark" href="#/blitz"><div class="t">${ICON.bolt}${L('Блиц', 'Blitz')}</div><div style="color:var(--dark-muted)">${due ? L('На сегодня ', 'For today: ') + due : L('На сегодня всё', 'All done for today')}</div></a>
+      <a class="tile light" href="#/quests"><div class="t">${L('Задания', 'Quests')}<span class="small muted" style="margin-left:auto">${qDone}${L(' из ', ' of ')}${q.length}</span></div>
         <div class="bar green"><i style="width:${Math.round(qDone / q.length * 100)}%"></i></div>
-        <div class="small muted">${nextQ ? esc(nextQ.text.split('.')[0]) + ' · +' + coins(nextQ.r) : 'Все задания выполнены'}</div></a>
+        <div class="small muted">${nextQ ? esc(nextQ.text.split('.')[0]) + ' · +' + coins(nextQ.r) : L('Все задания выполнены', 'All quests done')}</div></a>
     </div>
     ${mangaOn() ? mangaTile() : ''}
   </div>`;
@@ -612,9 +636,9 @@ function mangaTile() {
 // ----------------------------------------------------------- library ---
 
 VIEWS.library = () => {
-  const GENRES = [['all', 'Все'], ['Сказка', 'Сказки'], ['Рассказ', 'Рассказы'], ['Повесть', 'Повести'], ['Роман', 'Романы'], ['Приключения', 'Приключения'], ['Детектив', 'Детективы'], ['Фантастика', 'Фантастика'], ['Юмор', 'Смешное'], ['Война', 'Про войну'], ['Про животных', 'Про животных'], ['Стихи', 'Стихи'], ['Нон-фикшн', 'Нон-фикшн']];
-  const LENS = [['all', 'Любой длины'], ['short', 'Короткие'], ['mid', 'Средние'], ['long', 'Длинные']];
-  const lenOf = b => (b.words < 8000 ? 'short' : b.words < 25000 ? 'mid' : 'long');
+  const GENRES = EN() ? [['all', 'All'], ['Love', 'Love'], ['Later life', 'Later life'], ['Gossip', 'Gossip'], ['Sea', 'By the sea'], ['Letters', 'Letters'], ['Wedding', 'Weddings'], ['Music', 'Music']] : [['all', 'Все'], ['Сказка', 'Сказки'], ['Рассказ', 'Рассказы'], ['Повесть', 'Повести'], ['Роман', 'Романы'], ['Приключения', 'Приключения'], ['Детектив', 'Детективы'], ['Фантастика', 'Фантастика'], ['Юмор', 'Смешное'], ['Война', 'Про войну'], ['Про животных', 'Про животных'], ['Стихи', 'Стихи'], ['Нон-фикшн', 'Нон-фикшн']];
+  const LENS = EN() ? [['all', 'Any length'], ['short', 'Short'], ['mid', 'Medium'], ['long', 'Long']] : [['all', 'Любой длины'], ['short', 'Короткие'], ['mid', 'Средние'], ['long', 'Длинные']];
+  const lenOf = b => (EN() ? (b.words < 1500 ? 'short' : b.words < 6000 ? 'mid' : 'long') : b.words < 8000 ? 'short' : b.words < 25000 ? 'mid' : 'long');
   const match = b => (UI.genre === 'all' || b.genre === UI.genre || has(b.themes, UI.genre)) && (UI.len === 'all' || lenOf(b) === UI.len);
   const ids = LIB_ORDER.concat(Object.keys(BOOKS).filter(id => LIB_ORDER.indexOf(id) < 0)).filter(id => BOOKS[id] && match(BOOKS[id]) && !isDone(id));
   const hearts = shortlist();
@@ -624,28 +648,29 @@ VIEWS.library = () => {
       <a href="#/book/${id}">${coverHtml(b, '84px', 122, 12)}</a>
       <a class="main" href="#/book/${id}">
         <b style="font-size:16px;line-height:1.25">${esc(b.short)}</b>
-        <span class="small muted">${esc(authorOf(b).short)} · ${b.year}</span>
+        <span class="small muted">${esc(authorOf(b).short)} · ${EN() ? esc(b.level || '') : b.year}</span>
         <span class="tiny muted">${[b.genre].concat(b.themes || []).map(esc).join(' · ')}</span>
-        <span class="row wrap" style="gap:6px;margin-top:2px">${levelChip(b)}<span class="tiny" style="color:var(--ink2)">${pagesText(b)} · ${readHours(b).replace('≈ ', '')}</span>${b.ready ? '' : '<span class="soon">скоро</span>'}</span>
+        <span class="row wrap" style="gap:6px;margin-top:2px">${levelChip(b)}<span class="tiny" style="color:var(--ink2)">${pagesText(b)} · ${readHours(b).replace('≈ ', '')}</span>${b.ready ? '' : '<span class="soon">' + L('скоро', 'soon') + '</span>'}</span>
       </a>
       ${cur ? '<span class="heart" style="display:flex;align-items:center;justify-content:center">📖</span>'
-        : tooHard(b) ? '' : `<button class="heart ${on ? 'on' : ''}" data-act="heart" data-id="${id}" aria-label="Хочу прочитать">${on ? '♥' : '♡'}</button>`}
+        : tooHard(b) ? '' : `<button class="heart ${on ? 'on' : ''}" data-act="heart" data-id="${id}" aria-label="${L('Хочу прочитать', 'Want to read')}">${on ? '♥' : '♡'}</button>`}
     </div>`;
   };
-  const groups = [
+  const groups = (EN() ? [['Easier', 'A2', id => BOOKS[id].level === 'A2', 'var(--muted)'], ['Medium', 'A2+', id => BOOKS[id].level === 'A2+', 'var(--muted)'],
+    ['Harder', 'B1 and up', id => ['A2', 'A2+'].indexOf(BOOKS[id].level) < 0, 'var(--amber-ink)']] : [
     ['Твой уровень', 'читаются легко', id => ageDiff(BOOKS[id]) <= 0, 'var(--muted)'],
     ['Вызов', 'больше монет', id => ageDiff(BOOKS[id]) > 0 && !tooHard(BOOKS[id]), 'var(--amber-ink)'],
     ['Позже', 'откроются с уровнем', id => tooHard(BOOKS[id]), 'var(--faint)'],
-  ].map(([t, note, f, c]) => {
+  ]).map(([t, note, f, c]) => {
     const list = ids.filter(f);
     return list.length ? `<section class="stack" style="margin-top:6px"><div class="row" style="align-items:baseline"><h2 style="margin:0">${t}</h2><span class="small" style="color:${c}">${note}</span></div>
       <div class="grid2">${list.map(card).join('')}</div></section>` : '';
   }).join('');
   return `<div class="page">
-    <header class="head"><h1>Библиотека</h1>${info('mult')}</header>
+    <header class="head"><h1>${L('Библиотека', 'Library')}</h1>${info('mult')}</header>
     <div class="row wrap" style="gap:8px">${GENRES.map(([k, l]) => `<button class="chip ${UI.genre === k ? 'on' : ''}" data-act="genre" data-k="${k}">${l}</button>`).join('')}</div>
     <div class="row wrap" style="gap:8px">${LENS.map(([k, l]) => `<button class="chip ${UI.len === k ? 'on' : ''}" data-act="len" data-k="${k}">${l}</button>`).join('')}</div>
-    ${groups || '<div class="empty">Таких книг пока нет</div>'}
+    ${groups || '<div class="empty">' + L('Таких книг пока нет', 'No stories like this yet') + '</div>'}
   </div>`;
 };
 
@@ -662,40 +687,40 @@ VIEWS.book = r => {
   let action = '';
   if (isCur && b.ready) {
     const passed = passedCh(id);
-    action = passed >= (b.chapters || 1) ? `<a class="btn" href="#/check/${id}/final" style="align-self:flex-start;margin-top:10px">Финальная проверка</a>`
-      : `<a class="btn" href="#/read/${id}/${passed + 1}" style="align-self:flex-start;margin-top:10px">${passed ? 'Читать главу ' + (passed + 1) : 'Читать'}</a>`;
+    action = passed >= (b.chapters || 1) ? `<a class="btn" href="#/check/${id}/final" style="align-self:flex-start;margin-top:10px">${L('Финальная проверка', 'Final check')}</a>`
+      : `<a class="btn" href="#/read/${id}/${passed + 1}" style="align-self:flex-start;margin-top:10px">${passed ? L('Читать главу ', 'Read chapter ') + (passed + 1) : L('Читать', 'Read')}</a>`;
   } else if (!isCur && !done && !hard) {
     action = canStartNow
-      ? `<button class="btn" data-act="startBook" data-id="${id}" style="align-self:flex-start;margin-top:10px" ${b.ready ? '' : 'disabled'}>${b.ready ? 'Начать сейчас' : 'Скоро'}</button>`
-      : b.ready ? `<button class="btn ${isNext ? 'ghost' : ''}" data-act="pickNext" data-id="${id}" style="align-self:flex-start;margin-top:10px">${isNext ? '✓ Следующая' : 'Читать следующей'}</button>`
-      : '<button class="btn" disabled style="align-self:flex-start;margin-top:10px">Скоро</button>';
+      ? `<button class="btn" data-act="startBook" data-id="${id}" style="align-self:flex-start;margin-top:10px" ${b.ready ? '' : 'disabled'}>${b.ready ? L('Начать сейчас', 'Start now') : L('Скоро', 'Soon')}</button>`
+      : b.ready ? `<button class="btn ${isNext ? 'ghost' : ''}" data-act="pickNext" data-id="${id}" style="align-self:flex-start;margin-top:10px">${isNext ? L('✓ Следующая', '✓ Next') : L('Читать следующей', 'Read next')}</button>`
+      : '<button class="btn" disabled style="align-self:flex-start;margin-top:10px">' + L('Скоро', 'Soon') + '</button>';
   } else if (hard) {
     action = '<div class="fact" style="margin-top:8px">Откроется, когда твой уровень дойдёт до ' + (b.age - 2) + ' лет</div>';
   }
-  if (!isCur && b.ready) action += `<a class="btn ghost" href="#/read/${id}/1?look=1" style="align-self:flex-start;margin-top:10px">Полистать</a>`;
+  if (!isCur && b.ready) action += `<a class="btn ghost" href="#/read/${id}/1?look=1" style="align-self:flex-start;margin-top:10px">${L('Полистать', 'Look inside')}</a>`;
   const ills = (b.ills || []).map(n => asset(n, 'class="ill" data-act="zoom"')).join('');
   let review = '';
   if (done) {
     if (p && num(p.stars, 0)) {
-      review = `<section class="stack" style="padding-top:18px;border-top:1px solid var(--line)"><h2>Твой отзыв</h2><div class="small muted">${esc(readWhen(p))}</div>
+      review = `<section class="stack" style="padding-top:18px;border-top:1px solid var(--line)"><h2>${L('Твой отзыв', 'Your review')}</h2><div class="small muted">${esc(readWhen(p))}</div>
         <div class="stars">${'★★★★★'.slice(0, num(p.stars, 0))}${'☆☆☆☆☆'.slice(0, 5 - num(p.stars, 0))}</div>
         ${p.review ? '<div class="review">«' + esc(p.review) + '»</div>' : ''}</section>`;
     } else {
       const st = UI.draftStars || 0;
-      review = `<section class="stack" id="review" style="padding-top:18px;border-top:1px solid var(--line)"><h2>Оцени книгу</h2><div class="small muted">${esc(readWhen(p))}</div>
-        <div class="row" style="gap:10px">${[1, 2, 3, 4, 5].map(n => `<button class="starbtn ${n <= st ? 'on' : ''}" data-act="star" data-n="${n}" aria-label="${n} из 5">★</button>`).join('')}</div>
-        <textarea class="field" id="reviewText" rows="3" placeholder="Что понравилось, что нет? Можно по-английски."></textarea>
-        <button class="btn" data-act="saveReview" data-id="${id}" style="align-self:flex-start" ${st ? '' : 'disabled'}>Сохранить</button></section>`;
+      review = `<section class="stack" id="review" style="padding-top:18px;border-top:1px solid var(--line)"><h2>${L('Оцени книгу', 'Rate this story')}</h2><div class="small muted">${esc(readWhen(p))}</div>
+        <div class="row" style="gap:10px">${[1, 2, 3, 4, 5].map(n => `<button class="starbtn ${n <= st ? 'on' : ''}" data-act="star" data-n="${n}" aria-label="${n}${L(' из 5', ' of 5')}">★</button>`).join('')}</div>
+        <textarea class="field" id="reviewText" rows="3" placeholder="${L('Что понравилось, что нет? Можно по-английски.', 'What did you like, and what not? You can write in Russian too.')}"></textarea>
+        <button class="btn" data-act="saveReview" data-id="${id}" style="align-self:flex-start" ${st ? '' : 'disabled'}>${L('Сохранить', 'Save')}</button></section>`;
     }
   }
-  const askBox = aiOn() ? `<section class="card stack" style="background:#EEF2FD;border:0">
+  const askBox = aiOn() && !EN() ? `<section class="card stack" style="background:#EEF2FD;border:0">
       <div class="row"><h2 style="margin:0">Спросить о книге</h2>${info('ai')}${aiLeftHtml('color:var(--muted)')}</div>
       ${chatThread('book', id)}
       <div class="row"><input class="field grow" id="askBook" placeholder="Например: это страшная книга?" maxlength="300"><button class="btn small" data-act="askBook" data-id="${id}">Спросить</button></div></section>` : '';
   const back = r.q.get('from') || (isCur ? 'home' : 'library');
   return `<div class="page white full">
     <header class="head">${backBtn(back)}<div class="grow"></div>
-      ${!isCur && !done && !hard ? `<button class="pill" data-act="heart" data-id="${id}" style="${hearted ? 'background:var(--red-soft);border-color:#F4B7B2;color:#B2352F' : ''}">${hearted ? '♥ В списке' : '♡ Хочу прочитать'}</button>` : ''}
+      ${!isCur && !done && !hard ? `<button class="pill" data-act="heart" data-id="${id}" style="${hearted ? 'background:var(--red-soft);border-color:#F4B7B2;color:#B2352F' : ''}">${hearted ? L('♥ В списке', '♥ On my list') : L('♡ Хочу прочитать', '♡ Want to read')}</button>` : ''}
     </header>
     <div class="bookhead">
       ${coverHtml(b, '230px', 330, 24)}
@@ -703,19 +728,19 @@ VIEWS.book = r => {
         <div style="font-size:32px;font-weight:700;line-height:1.15">${esc(b.title)}</div>
         <button class="authorbtn" data-act="author" data-id="${b.author}">
           ${A.portrait ? asset(A.portrait, 'class="avatar"') : `<span class="avatar">${esc((A.name || '?')[0])}</span>`}${esc(A.name)} ›</button>
-        <div class="small muted">${b.year} · ${esc(b.genre)}</div>
+        <div class="small muted">${EN() ? esc(b.level || '') + ' · ' + (EN_LEVEL[b.level] || '') : b.year + ' · ' + esc(b.genre)}</div>
         <div class="row wrap" style="gap:8px">${(b.themes || []).map(t => '<span class="tag">' + esc(t) + '</span>').join('')}</div>
         <div class="grid3" style="margin-top:6px">
-          <div class="fact"><b>${pagesText(b)}</b><span class="tiny muted">${b.counted ? '' : '≈ '}${fmt(b.words)} слов${b.chapters > 1 ? ' · ' + b.chapters + ' ' + plural(b.chapters, 'глава', 'главы', 'глав') : ''} · ${readHours(b).replace('≈ ', '')}</span></div>
-          <div class="fact"><b>${b.age}+ лет</b><span class="tiny muted">${hard ? 'пока сложновато' : ageDiff(b) > 0 ? 'выше твоего уровня · ×' + ru(mult(b)) : ageDiff(b) < 0 ? 'ниже твоего уровня · ×' + ru(mult(b)) : 'твой уровень'}</span></div>
-          <div class="fact"><b>${hard ? '—' : '≈ ' + coins(bookMins(b) + finalMins(b))}</b><span class="tiny muted">${hard ? '' : bookMins(b) + ' за главы + ' + finalMins(b) + ' за всю книгу'}</span></div>
+          <div class="fact"><b>${pagesText(b)}</b><span class="tiny muted">${b.counted ? '' : '≈ '}${fmt(b.words)}${L(' слов', ' words')}${b.chapters > 1 ? ' · ' + b.chapters + ' ' + plural(b.chapters, 'глава', 'главы', 'глав') : ''} · ${readHours(b).replace('≈ ', '')}</span></div>
+          ${EN() ? '<div class="fact"><b>' + esc(b.level || '') + '</b><span class="tiny muted">' + (EN_LEVEL[b.level] || '') + '</span></div>' : `<div class="fact"><b>${b.age}+ лет</b><span class="tiny muted">${hard ? 'пока сложновато' : ageDiff(b) > 0 ? 'выше твоего уровня · ×' + ru(mult(b)) : ageDiff(b) < 0 ? 'ниже твоего уровня · ×' + ru(mult(b)) : 'твой уровень'}</span></div>`}
+          <div class="fact"><b>${hard ? '—' : '≈ ' + coins(bookMins(b) + finalMins(b))}</b><span class="tiny muted">${hard ? '' : (EN() ? bookMins(b) + ' for reading + ' + finalMins(b) + ' for finishing' : bookMins(b) + ' за главы + ' + finalMins(b) + ' за всю книгу')}</span></div>
         </div>
         ${action}
       </div>
     </div>
-    <section class="stack" style="gap:8px"><h2>О чём</h2><p style="margin:0;font-size:18px;line-height:1.6;color:var(--ink2)">${esc(b.synopsis || b.oneLiner || '')}</p></section>
-    ${b.why ? `<section class="stack" style="gap:8px"><h2>Почему её читают</h2>${b.why.map(w => `<div class="row" style="align-items:flex-start;gap:10px;font-size:16px;line-height:1.5;color:var(--ink2)"><b style="color:var(--blue)">•</b><span>${esc(w)}</span></div>`).join('')}</section>` : ''}
-    ${ills ? `<section class="stack"><h2>Иллюстрации</h2><div class="row wrap">${ills}</div></section>` : ''}
+    <section class="stack" style="gap:8px"><h2>${L('О чём', 'What it is about')}</h2><p style="margin:0;font-size:18px;line-height:1.6;color:var(--ink2)">${esc(b.synopsis || b.oneLiner || '')}</p></section>
+    ${b.why ? `<section class="stack" style="gap:8px"><h2>${L('Почему её читают', 'Why people read it')}</h2>${b.why.map(w => `<div class="row" style="align-items:flex-start;gap:10px;font-size:16px;line-height:1.5;color:var(--ink2)"><b style="color:var(--blue)">•</b><span>${esc(w)}</span></div>`).join('')}</section>` : ''}
+    ${ills ? `<section class="stack"><h2>${L('Иллюстрации', 'Pictures')}</h2><div class="row wrap">${ills}</div></section>` : ''}
     ${askBox}
     ${review}
   </div>`;
@@ -739,7 +764,6 @@ VIEWS.read = async r => {
   UI.r = { id, n, look, page: keepPage != null ? keepPage : (!look && pos && pos.n === n ? -1 : 0), frac: !look && pos && pos.n === n ? pos.frac : 0, pages: 1, prefs, shown: Date.now(), aa: false, pop: null };
   if (!UI.chat || UI.chat.key !== 'reader:' + id + ':' + n) UI.chat = { key: 'reader:' + id + ':' + n, msgs: [], busy: false };
   const passed = passedCh(id) >= n;
-  if (EN() && !progressOf(id)) save([{ t: 'Progress', rows: [{ book_id: id, status: 'reading', started: today(), chapters_passed: 0, updated: today() }] }]);
   const secret = look ? null : SECRETS[id + ':' + n];
   // Words he knows from other books stay tappable but lose the underline (the secret word keeps it).
   const known = knownBases();
@@ -750,8 +774,9 @@ VIEWS.read = async r => {
     // A block with line breaks is a stanza of verse: keep its lines.
     return (bl.indexOf('\n') > -1 ? '<p class="verse">' : '<p>') + esc(bl).replace(/\{(\w+)\|([^}]+)\}/g, (m, wid, text) => `<span class="${hwCls(wid)}" role="button" data-act="word" data-id="${wid}">${text}</span>`).replace(/\n/g, '<br>') + '</p>';
   }).join('');
-  const end = EN() ? (passed ? `<div class="end"><a class="btn" href="#/home">Back to the stories</a></div>` : `<div class="end"><a class="btn" href="#/check/${id}/${n}">Questions about the story</a></div>`)
-    : look ? `<div class="end">${n < book.chapters.length ? `<a class="btn ghost" href="#/read/${id}/${n + 1}?look=1">Глава ${n + 1} ›</a>` : ''}<a class="btn ghost" href="#/book/${id}">К книге</a></div>`
+  const end = look ? `<div class="end">${n < book.chapters.length ? `<a class="btn ghost" href="#/read/${id}/${n + 1}?look=1">${L('Глава ', 'Chapter ')}${n + 1} ›</a>` : ''}<a class="btn ghost" href="#/book/${id}">${L('К книге', 'About the story')}</a></div>`
+    // Her stories are one chapter: its questions finish the story and pay for all of it.
+    : EN() ? (passed ? `<div class="end"><a class="btn" href="#/home">To my shelf</a></div>` : `<div class="end"><a class="btn" href="#/check/${id}/${n}">Questions about the story · +${coins(chMins(b, ch.words) + finalMins(b))}</a></div>`)
     : n < book.chapters.length || !passed
     ? (passed ? `<div class="end"><a class="btn" href="#/read/${id}/${n + 1}">Глава ${n + 1} ›</a></div>`
       : `<div class="end"><a class="btn" href="#/check/${id}/${n}">Проверка главы · +${coins(chMins(b, ch.words))}</a></div>`)
@@ -759,8 +784,8 @@ VIEWS.read = async r => {
   return `<div class="reader ${prefs.theme}" id="reader"${EN() ? ' lang="en"' : ''}>
     <header class="r-bar">
       <a class="r-icon" href="${look ? '#/book/' + id : '#/home'}" aria-label="${L(look ? 'К книге' : 'На полку', 'Back')}">${ICON.back}</a>
-      <div class="title">${EN() ? esc(b.short) : esc(b.short) + ' · Глава ' + n}${look ? ' · просто листаю' : ''}${secret && !secretFound(id, n) ? ' · 🔎' : ''}</div>
-      ${look ? `<button class="r-icon" data-act="toc" aria-label="Главы и страницы" style="width:auto;padding:0 10px;font-size:15px;font-weight:600">Главы</button>` : ''}
+      <div class="title">${EN() ? esc(b.short) : esc(b.short) + ' · Глава ' + n}${look ? L(' · просто листаю', ' · just looking') : ''}${secret && !secretFound(id, n) ? ' · 🔎' : ''}</div>
+      ${look ? `<button class="r-icon" data-act="toc" aria-label="${L('Главы и страницы', 'Chapters and pages')}" style="width:auto;padding:0 10px;font-size:15px;font-weight:600">${L('Главы', 'Chapters')}</button>` : ''}
       ${aiOn() && !EN() ? `<button class="r-icon" data-act="chat" aria-label="Обсудить">${ICON.chat}</button>` : ''}
       <button class="r-icon" data-act="aa" aria-label="${L('Текст', 'Text')}">Aa</button>
     </header>
@@ -929,7 +954,7 @@ function tocPanel() {
   const R = UI.r, book = bookNow(R.id);
   if (!book) return '';
   return `<div class="r-panel r-aa" style="max-height:70vh;overflow:auto">
-    <div class="small muted">Страница <b id="tocPg">${R.page + 1}</b> из ${R.pages}</div>
+    <div class="small muted">${L('Страница ', 'Page ')}<b id="tocPg">${R.page + 1}</b>${L(' из ', ' of ')}${R.pages}</div>
     <input type="range" id="tocRange" min="1" max="${R.pages}" value="${R.page + 1}" style="width:100%">
     <div class="stack" style="gap:2px">${book.chapters.map((c, i) => `<a href="#/read/${R.id}/${i + 1}?look=1" class="row" style="gap:10px;padding:9px 4px;border-radius:8px;${i + 1 === R.n ? 'background:var(--soft);font-weight:700' : ''}">
       <span class="muted" style="width:24px">${i + 1}</span><span class="grow">${esc(c.title || 'Глава ' + (i + 1))}</span><span class="tiny muted">${pagesText(c)}</span></a>`).join('')}</div>
@@ -1085,15 +1110,11 @@ VIEWS.check = async r => {
   const all = C.qs.every((q, i) => C.answers[i] !== undefined);
   let foot;
   if (!C.done) foot = `<button class="btn" data-act="submitCheck" data-key="${key}" style="align-self:flex-start" ${all ? '' : 'disabled'}>${L('Проверить', 'Check my answers')}</button>`;
-  else if (EN()) foot = C.passed ? `<section class="result"><div class="grow stack" style="gap:4px"><b style="font-size:20px">${C.score} of ${C.qs.length} · well done!</b>
-      <span style="color:var(--dark-muted)">The underlined words are now in your Blitz.</span></div><a class="btn amber" href="#/home">Back to the stories</a></section>`
-    : `<section class="result fail"><b class="grow" style="font-size:20px">${C.score} of ${C.qs.length} · ${need} needed</b>
-      <a class="btn ghost" href="#/read/${id}/${n}">Read again</a><button class="btn" data-act="retryCheck" data-key="${key}">Try again</button></section>`;
-  else if (C.passed) foot = `<section class="result"><div class="grow stack" style="gap:4px"><b style="font-size:20px">${C.score} из ${C.qs.length} · ${isFinal ? 'книга прочитана!' : 'глава засчитана'}</b>
-      <span style="color:var(--dark-muted)">${C.mins ? '+' + coins(C.mins) : 'Эта глава уже была засчитана'}${C.note ? ' · ' + esc(C.note) : ''}</span></div>
-      <a class="btn amber" href="${isFinal ? '#/book/' + id + '?from=home' : n < book.chapters.length ? '#/read/' + id + '/' + (n + 1) : '#/home'}">${isFinal ? 'Оценить книгу' : n < book.chapters.length ? 'Глава ' + (n + 1) + ' ›' : 'На полку'}</a></section>`;
-  else foot = `<section class="result fail"><b class="grow" style="font-size:20px">${C.score} из ${C.qs.length} · нужно ${need}</b>
-      ${isFinal ? '' : `<a class="btn ghost" href="#/read/${id}/${n}">Перечитать</a>`}<button class="btn" data-act="retryCheck" data-key="${key}">Ещё раз</button></section>`;
+  else if (C.passed) foot = `<section class="result"><div class="grow stack" style="gap:4px"><b style="font-size:20px">${C.score}${L(' из ', ' of ')}${C.qs.length} · ${EN() ? 'story finished!' : isFinal ? 'книга прочитана!' : 'глава засчитана'}</b>
+      <span style="color:var(--dark-muted)">${C.mins ? '+' + coins(C.mins) : L('Эта глава уже была засчитана', 'This story was already counted')}${C.note ? ' · ' + esc(C.note) : ''}</span></div>
+      <a class="btn amber" href="${isFinal || EN() ? '#/book/' + id + '?from=home' : n < book.chapters.length ? '#/read/' + id + '/' + (n + 1) : '#/home'}">${isFinal || EN() ? L('Оценить книгу', 'Rate the story') : n < book.chapters.length ? 'Глава ' + (n + 1) + ' ›' : 'На полку'}</a></section>`;
+  else foot = `<section class="result fail"><b class="grow" style="font-size:20px">${C.score}${L(' из ', ' of ')}${C.qs.length} · ${L('нужно ', 'needed: ')}${need}</b>
+      ${isFinal ? '' : `<a class="btn ghost" href="#/read/${id}/${n}">${L('Перечитать', 'Read again')}</a>`}<button class="btn" data-act="retryCheck" data-key="${key}">${L('Ещё раз', 'Try again')}</button></section>`;
   return `<div class="page white full"${EN() ? ' lang="en"' : ''}>
     <header class="head">${backBtn(isFinal ? 'home' : 'read/' + id + '/' + n)}<h1>${EN() ? esc(BOOKS[id].short) : isFinal ? 'Финальная проверка' : 'Проверка · глава ' + n}</h1>${info(EN() ? 'en_quiz' : isFinal ? 'final' : 'quiz')}</header>
     ${qHtml}${foot}</div>`;
@@ -1126,8 +1147,19 @@ function submitCheck(key) {
     });
     const already = passedCh(id) >= n;
     if (EN() && C.passed && !already) {
-      // Her stories are one chapter each and pay nothing: passing the questions finishes the story.
-      ops.push({ t: 'Progress', rows: [Object.assign({ book_id: id, started: today() }, progressOf(id) || {}, { status: 'done', chapters_passed: n, finished: today(), final_score: C.score, updated: today() })] });
+      // Her stories are one chapter each: passing the questions finishes the story, paying for the chapter
+      // and for the whole book at once, with the bingo stamp and the move to the next story (as his final check).
+      const p = progressOf(id), cell = bingoCellFor(b, p), s = S();
+      mins = chMins(b, ch.words) + finalMins(b);
+      C.rankBefore = rankIdx(words90());
+      ops.push(ledger('chapter', chMins(b, ch.words), id + ':' + n), ledger('final', finalMins(b), id));
+      ops.push({ t: 'Progress', rows: [Object.assign({ book_id: id, started: today() }, p || {}, { status: 'done', chapters_passed: n, finished: today(), final_score: C.score, bingo: cell || '', updated: today() })] });
+      const next = s.next_book && BOOKS[s.next_book] && BOOKS[s.next_book].ready && !isDone(s.next_book) ? s.next_book : '';
+      set.cur_book = next;
+      if (next) { set.next_book = ''; set.locked = true; }
+      set.shortlist = shortlist().filter(x => x !== id && x !== next).join(',');
+      if (cell) C.note = 'bingo: “' + cell.split(':').slice(1).join(':') + '”';
+      C.enDone = true;
     } else if (C.passed && !already) {
       mins = chMins(b, ch.words);
       C.rankBefore = rankIdx(words90());
@@ -1163,8 +1195,8 @@ function submitCheck(key) {
   if (words.length) ops.push({ t: 'Words', rows: words });
   C.mins = mins;
   save(ops, Object.keys(set).length ? set : null);
-  if (isFinal && C.passed) bingoRewards();
-  if (C.rankBefore != null && rankIdx(words90()) > C.rankBefore) setTimeout(() => toast('Новое звание: ' + RANKS[rankIdx(words90())].name + '!'), 600);
+  if ((isFinal || C.enDone) && C.passed) bingoRewards();
+  if (C.rankBefore != null && rankIdx(words90()) > C.rankBefore) setTimeout(() => toast(L('Новое звание: ', 'New title: ') + RANKS[rankIdx(words90())].name + '!'), 600);
   render();
 }
 
@@ -1252,7 +1284,7 @@ VIEWS.blitz = async () => {
   return `<div class="page dark full"${EN() ? ' lang="en"' : ''}>${head}
     <section class="stack" style="margin-top:30px;gap:10px">
       <div style="font-size:64px;font-weight:700;line-height:1">${B.score} ${L('верно', 'right')}</div>
-      <div style="font-size:20px;color:var(--amber);font-weight:600">${won && !EN() ? '+' + coins(bzMins(B.score, B.qi)) : ''}</div>
+      <div style="font-size:20px;color:var(--amber);font-weight:600">${won ? '+' + coins(bzMins(B.score, B.qi)) : ''}</div>
       <div class="stack" style="margin-top:20px;gap:6px">${B.log.map(l => `<div class="row" style="gap:16px;padding:12px 16px;border-radius:12px;background:var(--dark2)">
         <div class="grow" style="font-size:18px">${esc(l.label)}</div>
         <div class="dots">${[0, 1, 2].map(i => '<i class="' + (i < l.s ? 'on' : '') + '"></i>').join('')}</div>
@@ -1321,7 +1353,7 @@ function bzEnd() {
   const rows = Object.values(B.changed);
   if (rows.length) ops.push({ t: 'Words', rows });
   ops.push({ t: 'Checks', rows: [{ id: rid(), date: today(), book_id: 'blitz', chapter: 'blitz', score: B.score, total: B.qi, passed: B.qi >= BZ_MIN, mins: bzMins(B.score, B.qi), words: 0 }] });
-  if (bzMins(B.score, B.qi) && !EN()) ops.push(ledger('blitz', bzMins(B.score, B.qi)));
+  if (bzMins(B.score, B.qi)) ops.push(ledger('blitz', bzMins(B.score, B.qi)));
   bump('bzOld', B.old); bump('cases', B.cases);
   // Words that went to rest for a month nudge the language age.
   const rested = rows.filter(r => r.st === 'archived' || r.st === 'learned').length;
@@ -1368,7 +1400,7 @@ function questList() {
   const mk = (g, q, period) => ({ g, id: q.id, icon: q.icon, text: q.text, n: q.n, r: q.r, p: Math.min(q.p(c), q.n), ref: q.id + ':' + period });
   const daily = seeded(DAILY_QUESTS.filter(q => !q.when || q.when(c)), 'd' + t).slice(0, 3).map(q => mk('day', q, t));
   const list = daily.slice();
-  list.push({ g: 'combo', id: 'combo', icon: '🔥', text: 'Комбо: все три задания дня', p: daily.filter(q => q.p >= q.n).length, n: 3, r: 3, ref: 'combo:' + t });
+  list.push({ g: 'combo', id: 'combo', icon: '🔥', text: L('Комбо: все три задания дня', 'Combo: all three quests of the day'), p: daily.filter(q => q.p >= q.n).length, n: 3, r: 3, ref: 'combo:' + t });
   // Secret words: ones found but not yet claimed stay listed, plus the one in the chapter he is on now.
   const cur = BOOKS[s.cur_book];
   const found = store.get('secrets', {});
@@ -1379,11 +1411,11 @@ function questList() {
   }
   keys.forEach(k => list.push({ g: 'special', id: 'secret', icon: '🔎', text: 'Тайное слово: в главе ' + k.split(':')[1] + ' есть слово, которое значит «' + SECRETS[k].hint + '». Найди и нажми на него.', p: found[k] ? 1 : 0, n: 1, r: 1, ref: 'secret:' + k }));
   const perfect = (D.checks || []).some(x => x.date === t && x.book_id !== 'blitz' && x.chapter !== 'final' && num(x.total, 0) > 0 && num(x.score, 0) === num(x.total, 0));
-  list.push({ g: 'special', id: 'perfect', icon: '🎯', text: 'Проверка главы без единой ошибки', p: perfect ? 1 : 0, n: 1, r: 2, ref: 'perfect:' + t });
+  list.push({ g: 'special', id: 'perfect', icon: '🎯', text: L('Проверка главы без единой ошибки', 'Story questions with no mistakes'), p: perfect ? 1 : 0, n: 1, r: 2, ref: 'perfect:' + t });
   seeded(WEEKLY_QUESTS.filter(q => !q.when || q.when(c)), 'w' + wk).slice(0, 2).forEach(q => list.push(mk('week', q, wk)));
   if (cur && !isDone(s.cur_book)) {
     const end = new Date(); end.setMonth(end.getMonth() + 1, 0);
-    list.push({ g: 'week', id: 'book', icon: '🏁', text: 'Дочитай «' + cur.short + '» до ' + end.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' }), p: passedCh(s.cur_book), n: (cur.chapters || 1) + 1, r: 5, ref: 'book:' + s.cur_book + ':' + t.slice(0, 7) });
+    list.push({ g: 'week', id: 'book', icon: '🏁', text: L('Дочитай «' + cur.short + '» до ', 'Finish “' + cur.short + '” by ') + end.toLocaleDateString(L('ru-RU', 'en-GB'), { day: 'numeric', month: 'long' }), p: passedCh(s.cur_book), n: (cur.chapters || 1) + (EN() ? 0 : 1), r: 5, ref: 'book:' + s.cur_book + ':' + t.slice(0, 7) });
   }
   return list;
 }
@@ -1396,11 +1428,11 @@ VIEWS.quests = () => {
     return `<div class="quest ${ok && !got ? 'ready' : ''} ${got ? 'claimed' : ''}"><div class="ic">${q.icon}</div>
       <div class="grow stack" style="gap:8px"><b style="font-size:17px;font-weight:600;line-height:1.35">${esc(q.text)}</b>
         <div class="row"><div class="bar grow ${ok ? 'green' : ''}"><i style="width:${Math.round(Math.min(1, q.p / q.n) * 100)}%"></i></div><span class="small muted" style="width:52px;text-align:right">${Math.min(q.p, q.n)} / ${q.n}</span></div></div>
-      ${ok && !got ? `<button class="btn amber small" data-act="claim" data-ref="${esc(q.ref)}" data-r="${q.r}">Забрать +${q.r}</button>` : `<span class="reward ${got ? 'got' : ''}">${got ? '✓ +' + q.r : '+' + q.r + ' мин'}</span>`}</div>`;
+      ${ok && !got ? `<button class="btn amber small" data-act="claim" data-ref="${esc(q.ref)}" data-r="${q.r}">${L('Забрать', 'Claim')} +${q.r}</button>` : `<span class="reward ${got ? 'got' : ''}">${got ? '✓ +' + q.r : '+' + q.r + L(' мин', '')}</span>`}</div>`;
   };
-  const groups = [['day', 'Сегодня'], ['combo', 'Комбо'], ['special', 'Особые'], ['week', 'Неделя и месяц']]
+  const groups = (EN() ? [['day', 'Today'], ['combo', 'Combo'], ['special', 'Special'], ['week', 'Week and month']] : [['day', 'Сегодня'], ['combo', 'Комбо'], ['special', 'Особые'], ['week', 'Неделя и месяц']])
     .map(([g, t]) => { const items = list.filter(q => q.g === g); return items.length ? `<section class="stack"><h2 style="margin:0">${t}</h2>${items.map(card).join('')}</section>` : ''; }).join('');
-  return `<div class="page"><header class="head"><h1>Задания</h1>${info('quests')}<span class="muted">${done} из ${list.length}</span></header>${groups}</div>`;
+  return `<div class="page"><header class="head"><h1>${L('Задания', 'Quests')}</h1>${info('quests')}<span class="muted">${done}${L(' из ', ' of ')}${list.length}</span></header>${groups}</div>`;
 };
 
 // ------------------------------------------------------- collection ---
@@ -1447,7 +1479,7 @@ function bingoRewards() {
   const st = bingoState();
   const ops = st.full.filter(x => !(D.ledger || []).some(l => l.kind === 'bingo' && l.ref === 'c' + st.n + 'l' + x.i)).map(x => ledger('bingo', 10, 'c' + st.n + 'l' + x.i));
   if (st.complete && !(D.ledger || []).some(l => l.kind === 'bingo' && l.ref === 'c' + st.n + 'full')) ops.push(ledger('bingo', 30, 'c' + st.n + 'full'));
-  if (ops.length) { save(ops); setTimeout(() => toast(st.complete ? 'Карточка бинго заполнена! +' + coins(ops.length * 10 + 20) : 'Бинго! +' + coins(ops.length * 10)), 900); }
+  if (ops.length) { save(ops); setTimeout(() => toast(st.complete ? L('Карточка бинго заполнена! +', 'Bingo card complete! +') + coins(ops.length * 10 + 20) : L('Бинго! +', 'Bingo! +') + coins(ops.length * 10)), 900); }
 }
 
 function achievements() {
@@ -1476,8 +1508,8 @@ function achievements() {
   };
   return ACHIEVEMENTS.map(([icon, name, value, steps, forms]) => {
     const v = value(ctx), t = steps.filter(x => v >= x).length, next = steps[t];
-    const unit = n => plural(n, forms[0], forms[1], forms[2]);
-    return { icon, name, t, goal: next ? fmt(v) + ' / ' + fmt(next) + ' · ' + unit(next) : fmt(v) + ' ' + unit(v) + ' · все ступени', pct: next ? Math.min(1, v / next) : 1 };
+    const unit = n => (EN() ? (n === 1 ? forms[0] : forms[1]) : plural(n, forms[0], forms[1], forms[2]));
+    return { icon, name, t, goal: next ? fmt(v) + ' / ' + fmt(next) + ' · ' + unit(next) : fmt(v) + ' ' + unit(v) + L(' · все ступени', ' · all steps done'), pct: next ? Math.min(1, v / next) : 1 };
   });
 }
 
@@ -1486,7 +1518,7 @@ function shelfCard(p, from) {
   const st = num(p.stars, 0);
   return `<a class="stack" href="#/book/${p.book_id}?from=${from}" style="gap:6px">${coverHtml(b, '100%', 200, 15)}
     <b style="font-size:15px;line-height:1.25">${esc(b.short || p.book_id)}</b>
-    ${st ? `<span style="font-size:16px;letter-spacing:2px;color:var(--amber)">${'★★★★★'.slice(0, st)}${'☆☆☆☆☆'.slice(0, 5 - st)}</span>` : '<span class="small" style="color:var(--blue);font-weight:600">Оцени книгу</span>'}</a>`;
+    ${st ? `<span style="font-size:16px;letter-spacing:2px;color:var(--amber)">${'★★★★★'.slice(0, st)}${'☆☆☆☆☆'.slice(0, 5 - st)}</span>` : '<span class="small" style="color:var(--blue);font-weight:600">' + L('Оцени книгу', 'Rate it') + '</span>'}</a>`;
 }
 function bingoGrid(st) {
   const inLine = new Set([].concat(...st.full.map(x => x.l)));
@@ -1504,14 +1536,14 @@ VIEWS.collection = () => {
   const st = bingoState();
   const n = st.n;
   return `<div class="page">
-    <header class="head"><h1>Коллекция</h1></header>
-    <section class="stack"><div class="row"><h2 class="grow" style="margin:0">Прочитано · ${done.length}</h2>${done.length > 4 ? '<a class="pill" href="#/shelf">Все ›</a>' : ''}</div>
-      ${done.length ? `<div class="grid4">${done.slice(0, 4).map(p => shelfCard(p, 'collection')).join('')}</div>` : '<div class="empty">Здесь появятся книги, которые ты дочитаешь.</div>'}</section>
-    <section class="card stack"><div class="row"><h2 style="margin:0">Книжное бинго · карточка ${n}</h2>${info('bingo')}<span class="muted" style="margin-left:auto">${st.cells.filter(c => c.book).length} из 16</span></div>
-      ${st.complete ? `<div class="row" style="padding:14px 16px;border-radius:12px;background:var(--green-soft)"><b class="grow">Карточка заполнена! 🎉</b><button class="btn small" data-act="newCard">Начать карточку ${n + 1}</button></div>` : ''}
+    <header class="head"><h1>${L('Коллекция', 'Collection')}</h1></header>
+    <section class="stack"><div class="row"><h2 class="grow" style="margin:0">${L('Прочитано', 'Read')} · ${done.length}</h2>${done.length > 4 ? '<a class="pill" href="#/shelf">' + L('Все ›', 'All ›') + '</a>' : ''}</div>
+      ${done.length ? `<div class="grid4">${done.slice(0, 4).map(p => shelfCard(p, 'collection')).join('')}</div>` : '<div class="empty">' + L('Здесь появятся книги, которые ты дочитаешь.', 'Stories you finish will appear here.') + '</div>'}</section>
+    <section class="card stack"><div class="row"><h2 style="margin:0">${L('Книжное бинго · карточка ', 'Story bingo · card ')}${n}</h2>${info('bingo')}<span class="muted" style="margin-left:auto">${st.cells.filter(c => c.book).length}${L(' из 16', ' of 16')}</span></div>
+      ${st.complete ? `<div class="row" style="padding:14px 16px;border-radius:12px;background:var(--green-soft)"><b class="grow">${L('Карточка заполнена! 🎉', 'Card complete! 🎉')}</b><button class="btn small" data-act="newCard">${L('Начать карточку ', 'Start card ')}${n + 1}</button></div>` : ''}
       ${bingoGrid(st)}
-      ${n > 1 ? `<div class="row wrap small muted" style="gap:8px">Заполненные: ${Array.from({ length: n - 1 }, (_, i) => `<a class="pill" href="#/card/${i + 1}">Карточка ${i + 1} ✓</a>`).join('')}</div>` : ''}</section>
-    <section class="stack"><h2 style="margin:0">Достижения · ${ach.filter(a => a.t).length} из ${ach.length}</h2>
+      ${n > 1 ? `<div class="row wrap small muted" style="gap:8px">${L('Заполненные: ', 'Completed: ')}${Array.from({ length: n - 1 }, (_, i) => `<a class="pill" href="#/card/${i + 1}">${L('Карточка ', 'Card ')}${i + 1} ✓</a>`).join('')}</div>` : ''}</section>
+    <section class="stack"><h2 style="margin:0">${L('Достижения', 'Achievements')} · ${ach.filter(a => a.t).length}${L(' из ', ' of ')}${ach.length}</h2>
       <div class="grid3">${ach.map(a => `<div class="ach"><div class="medal t${a.t}">${a.icon}</div><div class="grow"><b style="font-size:15px">${a.name}</b>
         <div class="tiny muted" style="line-height:1.3">${a.goal}</div><div class="bar ${a.t ? 'green' : ''}" style="height:6px;margin-top:6px"><i style="width:${Math.round(a.pct * 100)}%"></i></div></div></div>`).join('')}</div></section>
   </div>`;
@@ -1519,7 +1551,7 @@ VIEWS.collection = () => {
 
 VIEWS.card = r => {
   const st = bingoState(num(r.a, 1));
-  return `<div class="page full"><header class="head">${backBtn('collection')}<h1>Карточка ${st.n}</h1></header>${bingoGrid(st)}</div>`;
+  return `<div class="page full"><header class="head">${backBtn('collection')}<h1>${L('Карточка ', 'Card ')}${st.n}</h1></header>${bingoGrid(st)}</div>`;
 };
 
 VIEWS.shelf = () => {
@@ -1527,9 +1559,9 @@ VIEWS.shelf = () => {
   const done = doneRows().sort(sorts[UI.shelfSort] || sorts.recent);
   const totalWords = done.reduce((a, p) => a + num((BOOKS[p.book_id] || {}).words, 0), 0);
   return `<div class="page full">
-    <header class="head">${backBtn('collection')}<h1>Прочитано · ${done.length}</h1></header>
-    <div class="small muted">${fmt(totalWords)} слов · ${new Set(done.map(p => (BOOKS[p.book_id] || {}).author)).size} ${plural(new Set(done.map(p => (BOOKS[p.book_id] || {}).author)).size, 'автор', 'автора', 'авторов')}</div>
-    <div class="row wrap" style="gap:8px">${[['recent', 'Недавние'], ['stars', 'Лучшие'], ['author', 'По автору']].map(([k, l]) => `<button class="chip ${UI.shelfSort === k ? 'on' : ''}" data-act="shelfSort" data-k="${k}">${l}</button>`).join('')}</div>
+    <header class="head">${backBtn('collection')}<h1>${L('Прочитано', 'Read')} · ${done.length}</h1></header>
+    <div class="small muted">${fmt(totalWords)}${L(' слов · ', ' words · ')}${new Set(done.map(p => (BOOKS[p.book_id] || {}).author)).size} ${plural(new Set(done.map(p => (BOOKS[p.book_id] || {}).author)).size, 'автор', 'автора', 'авторов', 'author', 'authors')}</div>
+    <div class="row wrap" style="gap:8px">${[['recent', L('Недавние', 'Recent')], ['stars', L('Лучшие', 'Best')], ['author', L('По автору', 'By author')]].map(([k, l]) => `<button class="chip ${UI.shelfSort === k ? 'on' : ''}" data-act="shelfSort" data-k="${k}">${l}</button>`).join('')}</div>
     <div class="grid4">${done.map(p => shelfCard(p, 'shelf')).join('')}</div>
   </div>`;
 };
@@ -1543,7 +1575,7 @@ VIEWS.me = () => {
   const lm = langMonths(), hm = hisMonths();
   const ageMin = 6, ageMax = 16;
   const pos = m => Math.max(0, Math.min(100, (m / 12 - ageMin) / (ageMax - ageMin) * 100));
-  const hero = cal ? `<section class="darkcard stack" style="gap:12px">
+  const hero = EN() ? enHero() : cal ? `<section class="darkcard stack" style="gap:12px">
       <div class="row" style="gap:10px"><span class="muted">Читаешь как носитель языка в возрасте</span>${info('level')}</div>
       <div style="font-size:44px;font-weight:700;line-height:1.1">${ym(lm)}</div>
       <div class="bar amber" style="height:8px"><i style="width:${evidenceMonths() > num(s.lang_months, 0) ? 0 : Math.round(num(s.lang_prog, 0) * 100)}%"></i></div>
@@ -1573,26 +1605,27 @@ VIEWS.me = () => {
   const learned = (D.words || []).filter(w => w.book_id !== 'case' && (w.st === 'archived' || w.st === 'learned')).length;
   const w90 = words90(), ri = rankIdx(w90), R = RANKS[ri], N = RANKS[ri + 1];
   const done = doneIds().map(id => BOOKS[id]).filter(Boolean);
-  const genres = ['Рассказ', 'Сказка', 'Повесть', 'Роман'].map(g => [g, done.filter(b => b.genre === g).length]);
+  const genres = EN() ? [['Love', 'Love'], ['Later life', 'Later life'], ['Gossip', 'Gossip'], ['Sea', 'By the sea'], ['Letters', 'Letters']].map(([k, g]) => [g, done.filter(b => has(b.themes, k)).length])
+    : ['Рассказ', 'Сказка', 'Повесть', 'Роман'].map(g => [g, done.filter(b => b.genre === g).length]);
   const gmax = Math.max(1, ...genres.map(g => g[1]));
   return `<div class="page">
-    <header class="head"><h1>Мой уровень</h1><button class="btn ghost small" data-act="bug">Сообщить об ошибке</button><button class="btn ghost small" data-act="parent">Родителям</button></header>
+    <header class="head"><h1>${L('Мой уровень', 'My level')}</h1><button class="btn ghost small" data-act="bug">${L('Сообщить об ошибке', 'Report a problem')}</button><button class="btn ghost small" data-act="parent">${L('Родителям', 'Family settings')}</button></header>
     ${hero}
     <div class="grid3">
-      <div class="card stat"><b>${s.vocab_size ? '≈ ' + fmt(Math.round(num(s.vocab_size, 0) / 100) * 100) : done.length}</b><span>${s.vocab_size ? 'слов в словарном запасе' : plural(done.length, 'книга прочитана', 'книги прочитаны', 'книг прочитано')}</span></div>
-      <div class="card stat"><b>${checks.length ? acc + '%' : '—'}</b><span>верных ответов в проверках</span></div>
-      <div class="card stat"><b>${learned}</b><span>новых слов выучено</span></div>
+      <div class="card stat"><b>${s.vocab_size ? '≈ ' + fmt(Math.round((EN() ? enSize() : num(s.vocab_size, 0)) / 100) * 100) : done.length}</b><span>${s.vocab_size ? L('слов в словарном запасе', 'words you know') : plural(done.length, 'книга прочитана', 'книги прочитаны', 'книг прочитано', 'story read', 'stories read')}</span></div>
+      <div class="card stat"><b>${checks.length ? acc + '%' : '—'}</b><span>${L('верных ответов в проверках', 'right answers in the questions')}</span></div>
+      <div class="card stat"><b>${learned}</b><span>${L('новых слов выучено', 'new words learned')}</span></div>
     </div>
     ${covHtml}
     <section class="card stack" style="gap:14px">
       <div class="row" style="gap:16px"><div class="badge" style="width:56px;height:56px;background:${R.bg};color:${R.ink}">${ri + 1}</div>
-        <div class="grow"><div class="row" style="gap:8px"><span class="tiny muted">Начитанность · за 3 месяца</span>${info('ranks')}</div>
+        <div class="grow"><div class="row" style="gap:8px"><span class="tiny muted">${L('Начитанность · за 3 месяца', 'Reading · last 3 months')}</span>${info('ranks')}</div>
           <b style="font-size:19px">${R.name}</b>
           <div class="bar" style="margin-top:8px"><i style="width:${N ? Math.round((w90 - R.min) / (N.min - R.min) * 100) : 100}%"></i></div>
-          <div class="tiny muted" style="margin-top:6px">${N ? 'До «' + N.name + '»: ещё ' + fmt(N.min - w90) + ' слов за 3 месяца' : 'Высшее звание!'}</div></div></div>
-      <div class="ranks">${RANKS.map((k, i) => `<div class="${i < ri ? 'past' : ''}" style="${i === ri ? 'background:' + k.bg + ';color:' + k.ink + ';border-color:transparent' : ''}">${k.name}<small>${i ? '≈ ' + Math.round(k.min / 6000) + ' кн.' : '0'}</small></div>`).join('')}</div>
+          <div class="tiny muted" style="margin-top:6px">${N ? L('До «' + N.name + '»: ещё ' + fmt(N.min - w90) + ' слов за 3 месяца', 'To “' + N.name + '”: ' + fmt(N.min - w90) + ' more words in 3 months') : L('Высшее звание!', 'The highest title!')}</div></div></div>
+      <div class="ranks">${RANKS.map((k, i) => `<div class="${i < ri ? 'past' : ''}" style="${i === ri ? 'background:' + k.bg + ';color:' + k.ink + ';border-color:transparent' : ''}">${k.name}<small>${i ? '≈ ' + Math.round(k.min / L(6000, 1000)) + L(' кн.', ' stories') : '0'}</small></div>`).join('')}</div>
     </section>
-    <section class="card stack"><b>Что читаю</b>
+    <section class="card stack"><b>${L('Что читаю', 'What I read')}</b>
       ${genres.map(([g, n]) => `<div class="hbar" title="${g}: ${n}"><span class="n">${g}</span><span class="b"><i style="width:${n ? Math.max(6, n / gmax * 100) : 0}%"></i></span><b style="width:20px;text-align:right">${n}</b></div>`).join('')}
     </section>
   </div>`;
@@ -1767,23 +1800,37 @@ function enLevelCard(size, extra) {
     <div class="muted">Vocabulary ≈ ${enNum(Math.round(size / 100) * 100)} words${extra || ''}</div>
     <div style="line-height:1.5">${esc(CEFR_TEXT[c[1]])}</div>`;
 }
-EN_VIEWS.home = () => {
-  const s = S(), size = num(s.vocab_size, 0);
-  const level = placed() && s.cefr
-    ? enLevelCard(size) + `
-        ${levelDueIn() <= 0 ? `<a class="btn amber" href="#/test" style="align-self:flex-start">Test my level again</a>`
-          : `<div class="small muted">Next level check in ${enDays(levelDueIn())}</div>`}
-        ${levelHistory().length > 1 ? `<div class="stack" style="gap:4px">${levelHistory().slice().reverse().map(h => `<div class="small muted">${esc(enDate(h.d))} · ${esc(h.c || '')} · ≈ ${enNum(Math.round(num(h.s, 0) / 100) * 100)} words</div>`).join('')}</div>` : ''}</section>`
-    : `<a class="card big row" href="#/test" style="gap:16px"><span style="font-size:34px">🧭</span><div class="grow"><b style="font-size:20px">Level test · 10–15 minutes</b>
-        <div class="muted" style="margin-top:4px">How many English words you know, and what level that is</div></div><span class="pill">Start ›</span></a>`;
-  return `<div class="page" lang="en">
-    <header class="head"><h1>${enName() ? 'Hello, ' + esc(enName()) : 'Bookshelf'}</h1><button class="btn ghost small" data-act="bug">Report a problem</button></header>
-    ${level}
-    ${enStoriesHtml()}
-  </div>`;
-};
-const EN_SHARED = ['read', 'check', 'blitz'];
-['me', 'library', 'quests', 'collection', 'shelf', 'parent'].forEach(k => { EN_VIEWS[k] = EN_VIEWS.home; });
+/* Her level: CEFR from the vocabulary size of her last test, plus what she has done since (40 words for
+   each finished story, 3 for each word learned in Blitz), so it grows between tests and never drops. */
+function enSize() {
+  const learned = (D.words || []).filter(w => w.book_id !== 'case' && (w.st === 'archived' || w.st === 'learned')).length;
+  return num(S().vocab_size, 0) + 40 * doneIds().length + 3 * learned;
+}
+function enLevelInfo() {
+  const size = enSize(), c = cefrOf(size), next = CEFR[CEFR.indexOf(c) + 1];
+  return { size, c, next, pct: next ? Math.max(0, Math.min(1, (size - c[0]) / (next[0] - c[0]))) : 1 };
+}
+function enHero() {
+  if (!placed()) return `<section class="darkcard stack" style="gap:14px"><span class="muted">English</span>
+    <div style="font-size:26px;font-weight:700;line-height:1.25">Your level appears after the level test</div>
+    <a class="btn amber" href="#/test" style="align-self:flex-start">Level test · 10–15 minutes</a></section>`;
+  const E = enLevelInfo();
+  return `<section class="darkcard stack" style="gap:12px">
+    <div class="row" style="gap:10px"><span class="muted">Your English level</span>${info('level')}</div>
+    <div class="row" style="gap:14px;align-items:baseline"><div style="font-size:54px;font-weight:700;line-height:1">${E.c[1]}</div><div style="font-size:20px">${E.c[2]}</div></div>
+    <div class="bar amber" style="height:8px"><i style="width:${Math.round(E.pct * 100)}%"></i></div>
+    <div class="small muted">${E.next ? 'Next: ' + E.next[1] + ' at about ' + enNum(E.next[0]) + ' words. Finished stories and learned words move you up.' : 'The top level!'}</div>
+    <div style="line-height:1.5">${esc(CEFR_TEXT[E.c[1]])}</div>
+    ${levelDue() ? `<a class="btn amber" href="#/test" style="align-self:flex-start">Level check · +${coins(LEVEL_REWARD)}</a>` : `<div class="small muted">Next level check in ${enDays(levelDueIn())}</div>`}
+    ${levelHistory().length > 1 ? `<div class="stack" style="gap:4px">${levelHistory().slice().reverse().map(h => `<div class="small muted">${esc(enDate(h.d))} · ${esc(h.c || '')} · ≈ ${enNum(Math.round(num(h.s, 0) / 100) * 100)} words</div>`).join('')}</div>` : ''}</section>`;
+}
+function enTestCard() {
+  if (!placed()) return `<a class="card row" href="#/test" style="gap:14px"><span style="font-size:28px">🧭</span><div class="grow"><b>Level test · 10–15 minutes</b>
+    <div class="small muted">How many English words you know, and what level that is</div></div><span class="pill">Start ›</span></a>`;
+  if (!levelDue()) return '';
+  return `<a class="card row" href="#/test" style="gap:14px"><span style="font-size:28px">🧭</span><div class="grow"><b>Level check · 10–15 minutes · +${coins(LEVEL_REWARD)}</b>
+    <div class="small muted">Three months have passed: let us see how far you have come</div></div><span class="pill">Start ›</span></a>`;
+}
 
 EN_VIEWS.test = async () => {
   if (placed() && levelDueIn() > 0 && !(UI.test && UI.test.en && UI.test.phase === 'done')) { location.hash = '#/home'; return null; }
@@ -2189,7 +2236,7 @@ function connectFromLink(q) {
 // ------------------------------------------------------------ events ---
 
 const ACTS = {
-  info: el => openSheet('<div style="font-size:18px;line-height:1.55">' + esc(INFO[el.dataset.k] || '') + '</div><button class="btn dark" data-act="closeSheet" style="align-self:flex-end">' + L('Понятно', 'Got it') + '</button>', true),
+  info: el => openSheet('<div style="font-size:18px;line-height:1.55">' + esc((EN() && INFO_EN[el.dataset.k]) || INFO[el.dataset.k] || '') + '</div><button class="btn dark" data-act="closeSheet" style="align-self:flex-end">' + L('Понятно', 'Got it') + '</button>', true),
   closeSheet: () => closeSheet(),
   zoom: el => {
     const w = $('#sheet');
@@ -2204,8 +2251,8 @@ const ACTS = {
     openSheet(`<div class="row" style="align-items:flex-start;gap:20px">
       ${A.portrait ? asset(A.portrait, 'style="width:120px;height:150px;object-fit:cover;object-position:top;border-radius:10px;flex-shrink:0"') : `<div class="avatar" style="width:120px;height:150px;border-radius:10px;font-size:44px;font-weight:700">${esc(A.name[0])}</div>`}
       <div class="grow stack" style="gap:6px"><b style="font-size:26px">${esc(A.name)}</b><span class="muted">${esc(A.years)}</span><div style="font-size:17px;line-height:1.55;color:var(--ink2);margin-top:4px">${esc(A.bio)}</div></div>
-      <button class="icon-btn" data-act="closeSheet" aria-label="Закрыть">${ICON.close}</button></div>
-      <b>В библиотеке</b><div class="row wrap">${books.map(id => `<a class="pill" href="#/book/${id}">${esc(BOOKS[id].short)}</a>`).join('')}</div>`);
+      <button class="icon-btn" data-act="closeSheet" aria-label="${L('Закрыть', 'Close')}">${ICON.close}</button></div>
+      <b>${L('В библиотеке', 'In the library')}</b><div class="row wrap">${books.map(id => `<a class="pill" href="#/book/${id}">${esc(BOOKS[id].short)}</a>`).join('')}</div>`);
   },
   genre: el => { UI.genre = el.dataset.k; render(); },
   len: el => { UI.len = el.dataset.k; render(); },
@@ -2229,14 +2276,14 @@ const ACTS = {
   },
   startBook: el => {
     const id = el.dataset.id;
-    if (!BOOKS[id].ready) return toast('Эту книгу я ещё готовлю');
+    if (!BOOKS[id].ready) return toast(L('Эту книгу я ещё готовлю', 'This story is not ready yet'));
     // Starting a book locks it again until it is finished.
     const set = { cur_book: id, locked: true, shortlist: shortlist().filter(x => x !== id).join(',') };
     if (S().next_book === id) set.next_book = '';
     save([{ t: 'Progress', rows: [Object.assign({ book_id: id, status: 'reading', started: today(), chapters_passed: 0 }, progressOf(id) || {}, { updated: today() })] }], set);
     location.hash = '#/home';
   },
-  newCard: () => { save([], { bingo_card: num(S().bingo_card, 1) + 1 }); toast('Новая карточка бинго!'); render(); },
+  newCard: () => { save([], { bingo_card: num(S().bingo_card, 1) + 1 }); toast(L('Новая карточка бинго!', 'New bingo card!')); render(); },
   // Bug report: what he writes, plus where he was (screen, book, chapter, page) and the app version.
   bug: () => {
     const R = UI.r;
@@ -2317,7 +2364,7 @@ const ACTS = {
     const id = el.dataset.id, t = $('#reviewText');
     save([{ t: 'Progress', rows: [Object.assign({}, progressOf(id), { book_id: id, stars: UI.draftStars, review: t ? t.value.trim() : '', updated: today() })] }]);
     UI.draftStars = 0;
-    toast('Спасибо!');
+    toast(L('Спасибо!', 'Thank you!'));
     render();
   },
   // parent
@@ -2389,26 +2436,6 @@ const ACTS = {
     try { await navigator.clipboard.writeText(link); toast('Ссылка скопирована'); } catch (e) { prompt('Ссылка:', link); }
   },
 };
-
-// English stories: short books written for her level (drive/mum/catalog.json and en1.json …, made by
-// private/prep/build_en_stories.py). They open in his reader: underlined words join her Блиц when she
-// passes the questions, and every other word can be tapped too (no underline; it joins the list if tapped).
-const EN_LEVEL = { A2: 'Easier', 'A2+': 'Medium', B1: 'Harder' };
-function enStoriesHtml() {
-  const ids = LIB_ORDER.filter(id => BOOKS[id]);
-  const due = dueCount();
-  const blitz = `<a class="tile dark" href="#/blitz" style="min-height:0"><div class="t">${ICON.bolt}Blitz</div><div style="color:var(--dark-muted)">${due ? due + (due === 1 ? ' word' : ' words') + ' for today' : (D.words || []).length ? 'Nothing for today' : 'Your words from the stories'}</div></a>`;
-  return `<section class="stack" style="gap:12px"><h2 style="margin:0">English stories</h2>
-    <div class="muted">Written for your level. The underlined words are new and worth learning; tap any word to see it in Russian.</div>
-    ${ids.length ? ids.map((id, k) => {
-      const b = BOOKS[id], p = progressOf(id), done = p && p.status === 'done';
-      return `<a class="card row" href="#/read/${esc(id)}/1" style="gap:16px;align-items:flex-start"><div class="grow stack" style="gap:4px">
-        <span class="small muted">Story ${k + 1} · ${EN_LEVEL[b.level] || esc(b.level || '')} · about ${Math.max(5, Math.round(b.words / 90 / 5) * 5)} minutes</span>
-        <b style="font-size:20px">${esc(b.title)}</b><span class="small muted">by ${esc(authorOf(b).name)}</span><span class="muted">${esc(b.oneLiner || '')}</span></div>
-        <span class="pill ${done ? 'green' : ''}">${done ? '✓ Read' : p ? 'Continue ›' : 'Read ›'}</span></a>`;
-    }).join('') : '<div class="muted">Loading…</div>'}
-    ${blitz}</section>`;
-}
 
 document.addEventListener('click', e => {
   const el = e.target.closest('[data-act]');
