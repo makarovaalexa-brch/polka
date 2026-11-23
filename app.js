@@ -16,7 +16,7 @@ const yes = v => v === true || v === 'true';
 const fmt = n => Number(n).toLocaleString(EN() ? 'en-GB' : 'ru-RU');
 const IS_LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 
-const APP_VERSION = 46; // keep equal to the number in sw.js's CACHE name
+const APP_VERSION = 47; // keep equal to the number in sw.js's CACHE name
 
 // The English copy lives at /polka-en/ (outside this app's scope, so phones keep them as two apps)
 // and loads its code from /polka/. It keeps its own storage keys.
@@ -2597,6 +2597,9 @@ document.addEventListener('visibilitychange', () => {
   else {
     // The English profile locks again after 10 minutes away.
     if (D && EN() && yes(S().en_pin) && UI.enOk && UI.hiddenAt && Date.now() - UI.hiddenAt > 10 * 60e3) { UI.enOk = false; render(); }
+    // Back after a while: fetch the library and progress again (new books appear without closing the app),
+    // but never in the middle of reading, a check, a test or Блиц.
+    if (UI.hiddenAt && Date.now() - UI.hiddenAt > 10 * 60e3 && ['home', 'library', 'collection', 'quests', 'me', 'shelf', 'book'].indexOf(route().name) > -1) load();
     checkUpdate();
   }
 });
