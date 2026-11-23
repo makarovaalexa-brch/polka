@@ -16,7 +16,7 @@ const yes = v => v === true || v === 'true';
 const fmt = n => Number(n).toLocaleString(EN() ? 'en-GB' : 'ru-RU');
 const IS_LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 
-const APP_VERSION = 43; // keep equal to the number in sw.js's CACHE name
+const APP_VERSION = 44; // keep equal to the number in sw.js's CACHE name
 
 // The English copy lives at /polka-en/ (outside this app's scope, so phones keep them as two apps)
 // and loads its code from /polka/. It keeps its own storage keys.
@@ -1999,8 +1999,12 @@ let MANGA = null;
 function mangaOn() { return yes(S().manga_on) && !EN(); }
 async function loadManga() { MANGA = await content('manga.json'); return MANGA; }
 function mangaPrice() { const p = num(S().manga_vol_price, 50); return p > 0 ? p : 50; }
-function mangaUnlocked(vid) { return (D.ledger || []).some(l => l.kind === 'manga' && l.ref === vid); }
-function mangaOpened() { return (D.ledger || []).filter(l => l.kind === 'manga').length; }
+// A parent can lock a volume again: a 'manga_lock' row (refunding what he paid) cancels the last 'manga' row.
+function mangaUnlocked(vid) {
+  const L2 = (D.ledger || []).filter(l => l.ref === vid);
+  return L2.filter(l => l.kind === 'manga').length > L2.filter(l => l.kind === 'manga_lock').length;
+}
+function mangaOpened() { return [...new Set((D.ledger || []).filter(l => l.kind === 'manga').map(l => l.ref))].filter(mangaUnlocked).length; }
 // Chapters of a series, in order; key (volume:chapter) is for reading position and "read" marks.
 function mangaFlat(s) { const out = []; s.volumes.forEach(v => v.chapters.forEach((c, i) => out.push({ s, v, c, i, key: v.id + ':' + c.n }))); return out; }
 function mangaVols() { return MANGA ? (MANGA.series || []).reduce((a, s) => a.concat(s.volumes.map(v => ({ s, v }))), []) : []; }
@@ -2124,7 +2128,7 @@ function mangaParentHtml() {
   const vs = mangaVols();
   if (!vs.length) return '<div class="small muted" style="margin-top:8px">Томов пока нет: их добавляет prep_manga.py.</div>';
   return '<div class="stack" style="gap:6px;margin-top:10px">' + vs.map(x => `<div class="row" style="gap:10px"><span class="grow small">${esc(volName(x))}</span>${mangaUnlocked(x.v.id)
-    ? '<span class="pill green">открыт</span>' : `<button class="btn ghost small" data-act="mangaGift" data-k="${esc(x.v.id)}">Открыть бесплатно</button>`}</div>`).join('') + '</div>';
+    ? `<span class="pill green">открыт</span><button class="btn ghost small" data-act="mangaLock" data-k="${esc(x.v.id)}">Закрыть</button>` : `<button class="btn ghost small" data-act="mangaGift" data-k="${esc(x.v.id)}">Открыть бесплатно</button>`}</div>`).join('') + '</div>';
 }
 
 VIEWS.parent = () => {
@@ -2428,6 +2432,22 @@ const ACTS = {
     if (!x || mangaUnlocked(x.v.id)) return;
     save([ledger('manga', 0, x.v.id, volName(x) + ' · открыл родитель')]);
     toast('Открыт: ' + volName(x));
+    render();
+  },
+  mangaLock: el => {
+    const x = mangaVol(el.dataset.k);
+    if (!x || !mangaUnlocked(x.v.id)) return;
+    const paid = -num([...(D.ledger || [])].reverse().find(l => l.kind === 'manga' && l.ref === x.v.id).mins, 0);
+    openSheet(`<h3>Закрыть том ${x.v.n}?</h3><div class="muted">${esc(volName(x))} снова станет закрытым.${paid > 0 ? ' Ему вернутся ' + coins(paid) + ', которые он за него заплатил.' : ''}</div>
+      <div class="row" style="justify-content:flex-end;gap:10px"><button class="btn ghost" data-act="closeSheet">Отмена</button><button class="btn" data-act="mangaLockYes" data-k="${esc(x.v.id)}">Закрыть том</button></div>`, true);
+  },
+  mangaLockYes: el => {
+    const x = mangaVol(el.dataset.k);
+    closeSheet();
+    if (!x || !mangaUnlocked(x.v.id)) return;
+    const paid = -num([...(D.ledger || [])].reverse().find(l => l.kind === 'manga' && l.ref === x.v.id).mins, 0);
+    save([ledger('manga_lock', Math.max(0, paid), x.v.id, volName(x) + ' · закрыл родитель')]);
+    toast('Закрыт: ' + volName(x) + (paid > 0 ? ' · +' + coins(paid) + ' вернулись' : ''));
     render();
   },
   mangaOpen: el => {
