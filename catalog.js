@@ -165,6 +165,7 @@ const ACHIEVEMENTS_EN = [
   ['🦉', 'Night owl', c => c.evenings, [3, 10, 30], ['evening with a story', 'evenings with a story']],
   ['🎲', 'Bingo', c => c.lines, [1, 4, 8], ['line', 'lines']],
   ['🗂️', 'Collector', c => c.cards, [1, 2, 3], ['card', 'cards']],
+  ['💬', 'Chatterbox', c => c.questions, [10, 50, 150], ['message to the AI', 'messages to the AI']],
 ];
 const DAILY_QUESTS_EN = [
   { id: 'ch', icon: '📖', text: 'Pass the questions on a story', n: 1, r: 1, p: c => c.day.checks },
@@ -174,6 +175,7 @@ const DAILY_QUESTS_EN = [
   { id: 'old', icon: '🔁', text: 'Blitz: get 5 words right that you have been learning for a while', n: 5, r: 1, p: c => c.day.bzOld },
   { id: 'heart', icon: '♡', text: 'Visit the library and mark a story you want to read', n: 1, r: 1, p: c => c.day.hearts },
   { id: 'morning', icon: '🌅', text: 'Read before 9 in the morning', n: 1, r: 1, p: c => c.day.morning },
+  { id: 'ask', icon: '💬', text: 'Talk to the AI about a story, in English', n: 1, r: 1, p: c => c.day.asks, when: c => c.ai },
 ];
 const WEEKLY_QUESTS_EN = [
   { id: 'days', icon: '📅', text: 'Read on 5 days out of 7', n: 5, r: 5, p: c => c.week.days },

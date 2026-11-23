@@ -16,7 +16,7 @@ const yes = v => v === true || v === 'true';
 const fmt = n => Number(n).toLocaleString(EN() ? 'en-GB' : 'ru-RU');
 const IS_LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 
-const APP_VERSION = 40; // keep equal to the number in sw.js's CACHE name
+const APP_VERSION = 41; // keep equal to the number in sw.js's CACHE name
 
 // The English copy lives at /polka-en/ (outside this app's scope, so phones keep them as two apps)
 // and loads its code from /polka/. It keeps its own storage keys.
@@ -308,7 +308,7 @@ function wpm() { return num(S().wpm, 150); }
 function aiOn() { return yes(S().ai_enabled); }
 /** Questions left today; Infinity when the parent set no limit of our own (0) — then only Google's limit applies. */
 function aiLeft() { const s = S(); return num(s.ai_per_day, 0) <= 0 ? Infinity : num(s.ai_per_day, 0) - (s.ai_used_date === today() ? num(s.ai_used, 0) : 0); }
-function aiLeftHtml(style) { return aiLeft() === Infinity ? '' : `<span class="small" style="margin-left:auto;${style}">Вопросов сегодня: ${aiLeft()}</span>`; }
+function aiLeftHtml(style) { return aiLeft() === Infinity ? '' : `<span class="small" style="margin-left:auto;${style}">${L('Вопросов сегодня: ', 'Questions left today: ')}${aiLeft()}</span>`; }
 
 // Difficulty: harder books pay more (capped at +25%), easier ones less. More than 2 years above: "later".
 const MULT = { '-2': 0.75, '-1': 0.9, '0': 1, '1': 1.15, '2': 1.25 };
@@ -497,7 +497,7 @@ const INFO_EN = {
   final: 'The final check is about the whole story.',
   quests: 'Every day there are three new quests and every week two weekly ones. Combo: do all three quests of the day.',
   cover: 'How many of the words in a story you probably know.',
-  ai: 'Ask about what you have read.',
+  ai: 'Talk about the story in simple English. You can ask what a word means, ask for a simple explanation of a page, or ask it to discuss the story with you: it asks you questions and you answer. It does not tell you the ending before you get there.',
 };
 const INFO = {
   lock: 'Начатую книгу нужно дочитать, прежде чем начать следующую. Сменить её раньше можно с разрешения родителя.',
@@ -713,10 +713,10 @@ VIEWS.book = r => {
         <button class="btn" data-act="saveReview" data-id="${id}" style="align-self:flex-start" ${st ? '' : 'disabled'}>${L('Сохранить', 'Save')}</button></section>`;
     }
   }
-  const askBox = aiOn() && !EN() ? `<section class="card stack" style="background:#EEF2FD;border:0">
-      <div class="row"><h2 style="margin:0">Спросить о книге</h2>${info('ai')}${aiLeftHtml('color:var(--muted)')}</div>
+  const askBox = aiOn() ? `<section class="card stack" style="background:#EEF2FD;border:0">
+      <div class="row"><h2 style="margin:0">${L('Спросить о книге', 'Ask about this story')}</h2>${info('ai')}${aiLeftHtml('color:var(--muted)')}</div>
       ${chatThread('book', id)}
-      <div class="row"><input class="field grow" id="askBook" placeholder="Например: это страшная книга?" maxlength="300"><button class="btn small" data-act="askBook" data-id="${id}">Спросить</button></div></section>` : '';
+      <div class="row"><input class="field grow" id="askBook" placeholder="${L('Например: это страшная книга?', 'For example: Is it a sad story?')}" maxlength="300"><button class="btn small" data-act="askBook" data-id="${id}">${L('Спросить', 'Ask')}</button></div></section>` : '';
   const back = r.q.get('from') || (isCur ? 'home' : 'library');
   return `<div class="page white full">
     <header class="head">${backBtn(back)}<div class="grow"></div>
@@ -786,7 +786,7 @@ VIEWS.read = async r => {
       <a class="r-icon" href="${look ? '#/book/' + id : '#/home'}" aria-label="${L(look ? 'К книге' : 'На полку', 'Back')}">${ICON.back}</a>
       <div class="title">${EN() ? esc(b.short) : esc(b.short) + ' · Глава ' + n}${look ? L(' · просто листаю', ' · just looking') : ''}${secret && !secretFound(id, n) ? ' · 🔎' : ''}</div>
       ${look ? `<button class="r-icon" data-act="toc" aria-label="${L('Главы и страницы', 'Chapters and pages')}" style="width:auto;padding:0 10px;font-size:15px;font-weight:600">${L('Главы', 'Chapters')}</button>` : ''}
-      ${aiOn() && !EN() ? `<button class="r-icon" data-act="chat" aria-label="Обсудить">${ICON.chat}</button>` : ''}
+      ${aiOn() ? `<button class="r-icon" data-act="chat" aria-label="${L('Обсудить', 'Talk about it')}">${ICON.chat}</button>` : ''}
       <button class="r-icon" data-act="aa" aria-label="${L('Текст', 'Text')}">Aa</button>
     </header>
     <div class="r-body" id="rbody">
@@ -929,12 +929,12 @@ document.addEventListener('keydown', e => {
 /* Selecting any text (long press on the iPad) offers "Спросить про «…»". */
 document.addEventListener('selectionchange', () => {
   const btn = $('#askSel');
-  if (!btn || !UI.r || !aiOn() || EN()) return;
+  if (!btn || !UI.r || !aiOn()) return;
   const sel = window.getSelection();
   const text = sel ? String(sel).trim().replace(/\s+/g, ' ') : '';
   const inside = sel && sel.rangeCount && $('#rcols') && $('#rcols').contains(sel.anchorNode);
   if (inside && text.length >= 2 && text.length <= 200) {
-    btn.textContent = 'Спросить про «' + (text.length > 30 ? text.slice(0, 28) + '…' : text) + '»';
+    btn.textContent = L('Спросить про «', 'What does “') + (text.length > 30 ? text.slice(0, 28) + '…' : text) + L('»', '” mean?');
     btn.dataset.text = text;
     const para = sel.anchorNode && (sel.anchorNode.nodeType === 1 ? sel.anchorNode : sel.anchorNode.parentElement).closest('p');
     btn.dataset.ctx = sentenceAround(para ? para.textContent : '', text);
@@ -995,12 +995,23 @@ function tapWord(wid) {
       <div><div class="base">${esc(g.base)}</div><div class="gram">${esc(g.gram || '')}</div></div>
       <button class="r-icon" data-act="closePanel" aria-label="${L('Закрыть', 'Close')}">${ICON.close}</button></div>
     <div class="ru" lang="ru">${esc(g.ru)}</div>
-    ${aiOn() && !EN() ? `<button data-act="askWord" data-base="${esc(g.base)}" style="align-self:flex-start;padding:8px 0;color:var(--blue);font-size:15px;font-weight:600">Всё равно непонятно — спросить</button>` : ''}</div>`;
+    ${aiOn() ? `<button data-act="askWord" data-base="${esc(g.base)}" style="align-self:flex-start;padding:8px 0;color:var(--blue);font-size:15px;font-weight:600">${L('Всё равно непонятно — спросить', 'Explain in simple English')}</button>` : ''}</div>`;
 }
 function secretFound(id, n) { return !!store.get('secrets', {})[id + ':' + n]; }
 
 // --------------------------------------------------------------- AI ---
 
+const AI_ERRORS_EN = {
+  AI_OFF: 'Questions are turned off at the moment.',
+  AI_LIMIT: 'No more questions today. You can ask again tomorrow!',
+  AI_QUOTA: 'Too many questions at once. Please try again in a minute.',
+  AI_DAY: 'The free answers have run out for today. You can ask again tomorrow.',
+  AI_NOKEY: 'Questions are not set up yet.',
+  AI_BUSY: 'The AI is busy. Please try again in a few minutes. This question was not counted.',
+  AI_FAIL: 'Something went wrong, no answer. Please try again a bit later. This question was not counted.',
+  TIMEOUT: 'The AI is taking too long. Please try again in a minute. This question was not counted.',
+};
+function aiErrors() { return EN() ? AI_ERRORS_EN : AI_ERRORS; }
 const AI_ERRORS = {
   AI_OFF: 'Вопросы сейчас выключены.',
   AI_LIMIT: 'На сегодня вопросы закончились. Завтра будут новые!',
@@ -1016,17 +1027,17 @@ function chatThread(kind, id) {
   if (!C || !C.msgs.length) return '';
   return '<div class="stack" style="gap:10px">' + C.msgs.map(m => `<div class="stack" style="gap:6px">
     <div style="align-self:flex-end;max-width:80%;padding:10px 14px;border-radius:14px 14px 4px 14px;background:var(--blue);color:#FFFFFF">${esc(m.q)}</div>
-    <div style="max-width:90%;padding:12px 14px;border-radius:14px 14px 14px 4px;background:#FFFFFF;line-height:1.55;white-space:pre-wrap">${m.err ? '<span class="ai-err">' + esc(m.err) + '</span>' : m.a ? esc(m.a) : '<span class="muted">Думаю</span><span class="typing" aria-hidden="true"><i></i><i></i><i></i></span>'}</div></div>`).join('') + '</div>';
+    <div style="max-width:90%;padding:12px 14px;border-radius:14px 14px 14px 4px;background:#FFFFFF;line-height:1.55;white-space:pre-wrap">${m.err ? '<span class="ai-err">' + esc(m.err) + '</span>' : m.a ? esc(m.a) : '<span class="muted">' + L('Думаю', 'Thinking') + '</span><span class="typing" aria-hidden="true"><i></i><i></i><i></i></span>'}</div></div>`).join('') + '</div>';
 }
 function chatPanel() {
   const C = UI.chat;
-  const starters = C.msgs.length ? '' : `<div class="row wrap" style="gap:8px">${['Объясни, что здесь происходит', 'Почему герой так поступил?', 'Что значит последняя фраза на странице?']
+  const starters = C.msgs.length ? '' : `<div class="row wrap" style="gap:8px">${(EN() ? ['Let’s talk about the story. Ask me a question.', 'Explain this page in simple words', 'Check my English: '] : ['Объясни, что здесь происходит', 'Почему герой так поступил?', 'Что значит последняя фраза на странице?'])
     .map(q => `<button class="chip" data-act="askStarter" data-q="${esc(q)}">${esc(q)}</button>`).join('')}</div>`;
   return `<div class="r-panel r-pop" style="max-height:70vh;overflow-y:auto">
-    <div class="row"><b style="font-size:20px">Обсудить</b>${info('ai')}${aiLeftHtml('color:var(--r-muted)')}
-      <button class="r-icon" data-act="closePanel" aria-label="Закрыть">${ICON.close}</button></div>
+    <div class="row"><b style="font-size:20px">${L('Обсудить', 'Talk about it')}</b>${info('ai')}${aiLeftHtml('color:var(--r-muted)')}
+      <button class="r-icon" data-act="closePanel" aria-label="${L('Закрыть', 'Close')}">${ICON.close}</button></div>
     ${chatThread('reader', UI.r.id + ':' + UI.r.n)}${starters}
-    <div class="row"><input class="field grow" id="askInput" placeholder="Свой вопрос…" maxlength="300" value="${esc(C.draft || '')}"><button class="btn small" data-act="askSend">Спросить</button></div></div>`;
+    <div class="row"><input class="field grow" id="askInput" placeholder="${L('Свой вопрос…', 'Write here…')}" maxlength="300" value="${esc(C.draft || '')}"><button class="btn small" data-act="askSend">${L('Спросить', 'Send')}</button></div></div>`;
 }
 function openChat(prefill, send) {
   if (!UI.r) return;
@@ -1042,7 +1053,7 @@ async function askAI(q, kind, bookId) {
   if (!q) return;
   const C = UI.chat;
   if (C.busy) return;
-  if (aiLeft() <= 0) return toast(AI_ERRORS.AI_LIMIT, true);
+  if (aiLeft() <= 0) return toast(aiErrors().AI_LIMIT, true);
   const isBook = kind === 'book';
   const msg = { q, a: '' };
   const history = C.msgs.filter(m => m.a && !m.err).map(m => ({ q: m.q, a: m.a }));
@@ -1063,7 +1074,7 @@ async function askAI(q, kind, bookId) {
     bump('asks');
   } catch (e) {
     const code = String(e.message).split(' ')[0];
-    msg.err = AI_ERRORS[code] || (/fetch|network|load/i.test(e.message) ? 'Нет связи. Спроси, когда будет интернет.' : 'Не получилось ответить. Попробуй ещё раз.');
+    msg.err = aiErrors()[code] || (/fetch|network|load/i.test(e.message) ? L('Нет связи. Спроси, когда будет интернет.', 'No connection. Please ask when you are online.') : L('Не получилось ответить. Попробуй ещё раз.', 'Could not answer. Please try again.'));
   }
   C.busy = false;
   redraw();
@@ -2336,10 +2347,10 @@ const ACTS = {
   },
   // AI
   chat: () => (UI.r.chat ? closePanel() : openChat('')),
-  askStarter: el => openChat(el.dataset.q, true),
+  askStarter: el => openChat(el.dataset.q, !/: $/.test(el.dataset.q)),
   askSend: () => { const i = $('#askInput'); if (i && i.value.trim()) askAI(i.value); },
-  askWord: el => { UI.chat.focus = { phrase: el.dataset.base, sentence: (UI.r && UI.r.lastWord) || '' }; openChat('Что значит «' + el.dataset.base + '» в этом месте?', true); },
-  askSel: el => { hideAskSel(); const t = el.dataset.text; UI.chat.focus = { phrase: t, sentence: el.dataset.ctx || t }; try { window.getSelection().removeAllRanges(); } catch (e) { /* ignore */ } openChat('Что значит «' + t + '» здесь?', false); },
+  askWord: el => { UI.chat.focus = { phrase: el.dataset.base, sentence: (UI.r && UI.r.lastWord) || '' }; openChat(EN() ? 'What does “' + el.dataset.base + '” mean here? Please explain in very simple English.' : 'Что значит «' + el.dataset.base + '» в этом месте?', true); },
+  askSel: el => { hideAskSel(); const t = el.dataset.text; UI.chat.focus = { phrase: t, sentence: el.dataset.ctx || t }; try { window.getSelection().removeAllRanges(); } catch (e) { /* ignore */ } openChat(EN() ? 'What does “' + t + '” mean here?' : 'Что значит «' + t + '» здесь?', false); },
   askBook: el => {
     const i = $('#askBook');
     if (!i || !i.value.trim()) return;

@@ -159,7 +159,7 @@ const Mock = (() => {
       if (Number(s.ai_per_day) > 0 && used >= Number(s.ai_per_day)) throw new Error('AI_LIMIT');
       s.ai_used_date = today();
       s.ai_used = used + 1;
-      const answer = 'Это демо-ответ: в настоящем приложении на вопрос «' + req.question + '» ответит ИИ. Он знает, докуда ты дочитал, и не рассказывает, что будет дальше. А ты сам как думаешь?';
+      const answer = s.lang === 'en' ? 'This is a demo answer. In the real app, the AI answers “' + req.question + '” in simple English.' : 'Это демо-ответ: в настоящем приложении на вопрос «' + req.question + '» ответит ИИ. Он знает, докуда ты дочитал, и не рассказывает, что будет дальше. А ты сам как думаешь?';
       d.AILog.push({ id: id(), date: now(), book_id: req.book_id || '', chapter: req.chapter || '', question: req.question, answer });
       return { answer, left: Number(s.ai_per_day) > 0 ? Number(s.ai_per_day) - used - 1 : -1 };
     },
