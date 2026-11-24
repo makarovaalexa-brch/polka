@@ -16,7 +16,7 @@ const yes = v => v === true || v === 'true';
 const fmt = n => Number(n).toLocaleString(EN() ? 'en-GB' : 'ru-RU');
 const IS_LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 
-const APP_VERSION = 52; // keep equal to the number in sw.js's CACHE name
+const APP_VERSION = 53; // keep equal to the number in sw.js's CACHE name
 
 // The English copy lives at /polka-en/ (outside this app's scope, so phones keep them as two apps)
 // and loads its code from /polka/. It keeps its own storage keys.
@@ -532,7 +532,7 @@ const ICON = {
   lock: '<svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>',
   unlock: '<svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 7.5-2"/></svg>',
   bolt: '<svg width="20" height="20" viewBox="0 0 24 24" fill="#F0A42C"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>',
-  coin: '<svg width="26" height="26" viewBox="0 0 26 26"><circle cx="13" cy="13" r="12" fill="#F0A42C"/><circle cx="13" cy="13" r="8.5" fill="none" stroke="#B8740F" stroke-width="1.6"/><path d="M13 8.5V13l3 2" fill="none" stroke="#7A4A05" stroke-width="2" stroke-linecap="round"/></svg>',
+  coin: '<svg width="26" height="26" viewBox="0 0 26 26"><circle cx="13" cy="13" r="12" fill="#F0A42C"/><circle cx="13" cy="13" r="8.5" fill="none" stroke="#B8740F" stroke-width="1.6"/><path d="M13 7.6l1.6 3.3 3.6.5-2.6 2.5.6 3.6-3.2-1.7-3.2 1.7.6-3.6-2.6-2.5 3.6-.5z" fill="#B8740F"/></svg>',
 };
 /** Her English screens reuse his reader, check and Блиц: the same screens with English words. */
 const L = (ru, en) => (EN() ? en : ru);
