@@ -16,7 +16,7 @@ const yes = v => v === true || v === 'true';
 const fmt = n => Number(n).toLocaleString(EN() ? 'en-GB' : 'ru-RU');
 const IS_LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 
-const APP_VERSION = 48; // keep equal to the number in sw.js's CACHE name
+const APP_VERSION = 49; // keep equal to the number in sw.js's CACHE name
 
 // The English copy lives at /polka-en/ (outside this app's scope, so phones keep them as two apps)
 // and loads its code from /polka/. It keeps its own storage keys.
@@ -534,14 +534,14 @@ const ICON = {
 };
 /** Her English screens reuse his reader, check and Блиц: the same screens with English words. */
 const L = (ru, en) => (EN() ? en : ru);
-const EN_LEVEL = { A2: 'Easier', 'A2+': 'Medium', B1: 'Harder', 'B1+': 'Harder', B2: 'Challenging' };
+const EN_LEVEL = { A2: 'Warm-up', 'A2+': 'Step up', B1: 'Your level', 'B1+': 'A stretch', B2: 'Challenge' };
 const TAB_EN = { home: 'Shelf', library: 'Library', quests: 'Quests', collection: 'Collection', me: 'My level' };
 const info = key => '<button class="info" data-act="info" data-k="' + key + '" aria-label="' + L('Подробнее', 'More') + '">i</button>';
 const backBtn = to => '<a class="icon-btn" href="#/' + to + '" aria-label="' + L('Назад', 'Back') + '">' + ICON.back + '</a>';
 
 const INFO_EN = {
   lock: 'A story you have started stays on your shelf until you finish it. Your family can change it earlier.',
-  mult: 'Stories are sorted by level: Easier (A2), Medium (A2+) and Harder (B1 and up). Every story pays coins for reading it and for finishing it.',
+  mult: 'Stories are sorted by level: Warm-up (A2), Step up (A2+) and Your level (B1 and up). Every story pays coins for reading it and for finishing it.',
   level: 'Your level on the European scale (A1 to C2), from your vocabulary test. It grows as you finish stories and learn new words. Every three months there is a level check. Your level never goes down.',
   ranks: 'Your title counts the words you read in the last 3 months. If you stop reading it can go down, and it comes back up when you return to your stories.',
   bingo: 'Every story you finish stamps one matching square. A full row pays +10 coins, the whole card +30 coins. Then you can start a new card with different squares.',
@@ -720,8 +720,8 @@ VIEWS.library = () => {
         : tooHard(b) ? '' : `<button class="heart ${on ? 'on' : ''}" data-act="heart" data-id="${id}" aria-label="${L('Хочу прочитать', 'Want to read')}">${on ? '♥' : '♡'}</button>`}
     </div>`;
   };
-  const groups = (EN() ? [['Easier', 'A2', id => BOOKS[id].level === 'A2', 'var(--muted)'], ['Medium', 'A2+', id => BOOKS[id].level === 'A2+', 'var(--muted)'],
-    ['Harder', 'B1 and up', id => ['A2', 'A2+'].indexOf(BOOKS[id].level) < 0, 'var(--amber-ink)']] : [
+  const groups = (EN() ? [['Warm-up', 'A2', id => BOOKS[id].level === 'A2', 'var(--muted)'], ['Step up', 'A2+', id => BOOKS[id].level === 'A2+', 'var(--muted)'],
+    ['Your level', 'B1 and up', id => ['A2', 'A2+'].indexOf(BOOKS[id].level) < 0, 'var(--amber-ink)']] : [
     ['Твой уровень', 'читаются легко', id => ageDiff(BOOKS[id]) <= 0, 'var(--muted)'],
     ['Вызов', 'больше монет', id => ageDiff(BOOKS[id]) > 0 && !tooHard(BOOKS[id]), 'var(--amber-ink)'],
     ['Позже', 'откроются с уровнем', id => tooHard(BOOKS[id]), 'var(--faint)'],
