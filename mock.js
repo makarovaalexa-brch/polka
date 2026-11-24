@@ -10,7 +10,7 @@ const Mock = (() => {
   const KEY = EN_DEMO ? 'polka_mockdb_en' : 'polka_mockdb3';
   const DRIVE = EN_DEMO ? '../drive/mum/' : '../drive/';
   const DEFAULTS = {
-    ratio: 0.5, final_pct: 50, blitz_reward: 1, ai_per_day: 0, ai_enabled: true, dob: '2015-09-01',
+    ratio: 0.5, final_pct: 50, blitz_reward: 1, blitz_week: 10, ai_per_day: 0, ai_enabled: true, dob: '2015-09-01',
     lang_months: 112, lang_prog: 0.4, cur_book: 'kasht', locked: true, next_book: 'kur', shortlist: 'kur,timur,deti',
     manga_on: true, manga_vol_price: 50, screen_on: false,
     best_blitz: 9, wpm: 150, wpm_updated: '', pin_hash: 'demo:1234', gemini_model: 'auto', ai_used_date: '', ai_used: 0,

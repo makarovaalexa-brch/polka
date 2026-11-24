@@ -16,7 +16,7 @@ const yes = v => v === true || v === 'true';
 const fmt = n => Number(n).toLocaleString(EN() ? 'en-GB' : 'ru-RU');
 const IS_LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 
-const APP_VERSION = 49; // keep equal to the number in sw.js's CACHE name
+const APP_VERSION = 50; // keep equal to the number in sw.js's CACHE name
 
 // The English copy lives at /polka-en/ (outside this app's scope, so phones keep them as two apps)
 // and loads its code from /polka/. It keeps its own storage keys.
@@ -670,7 +670,7 @@ VIEWS.home = () => {
       ${shortHtml}
     </section>
     <div class="grid2">
-      <a class="tile dark" href="#/blitz"><div class="t">${ICON.bolt}${L('Блиц', 'Blitz')}</div><div style="color:var(--dark-muted)">${due ? L('На сегодня ', 'For today: ') + due : L('На сегодня всё', 'All done for today')}</div></a>
+      <a class="tile dark" href="#/blitz"><div class="t">${ICON.bolt}${L('Блиц', 'Blitz')}</div><div style="color:var(--dark-muted)">${due ? L('На сегодня ', 'For today: ') + due : L('На сегодня всё', 'All done for today')}</div>${bzHomeLine()}</a>
       <a class="tile light" href="#/quests"><div class="t">${L('Задания', 'Quests')}<span class="small muted" style="margin-left:auto">${qDone}${L(' из ', ' of ')}${q.length}</span></div>
         <div class="bar green"><i style="width:${Math.round(qDone / q.length * 100)}%"></i></div>
         <div class="small muted">${nextQ ? esc(nextQ.text.split('.')[0]) + ' · +' + coins(nextQ.r) : L('Все задания выполнены', 'All quests done')}</div></a>
@@ -1419,7 +1419,27 @@ function bzPick(j) {
 /* Блиц pays for trying: a round with at least BZ_MIN answers (right or wrong) pays the set minutes, and
    one with BZ_GREAT right answers pays twice that (parent's choice). A round left to run out pays nothing. */
 const BZ_MIN = 10, BZ_GREAT = 20;
+/** Days with a Blitz round that counts (BZ_MIN+ answers), the run of such days up to today (or up to
+ *  yesterday while today's round is still to come), and the weekly bonus: 3, 5 and 7 days of the week. */
+function bzDays() { return new Set((D.checks || []).filter(c => c.book_id === 'blitz' && yes(c.passed)).map(c => c.date)); }
+function bzStreak() {
+  const days = bzDays(), d = parseIso(today());
+  if (!days.has(iso(d))) d.setDate(d.getDate() - 1);
+  let n = 0;
+  while (days.has(iso(d))) { n++; d.setDate(d.getDate() - 1); }
+  return n;
+}
+function bzWeekTiers() { const v = num(S().blitz_week, 10); return [[3, Math.max(1, Math.round(v * 0.3))], [5, Math.max(1, Math.round(v * 0.5))], [7, v]]; }
 function bzMins(score, answered) { const r = num(S().blitz_reward, 1); return answered < BZ_MIN ? 0 : score >= BZ_GREAT ? 2 * r : r; }
+function bzHomeLine() {
+  const n = bzStreak(), done = bzDays().has(today());
+  const wk = weekStart(today()), week = [...bzDays()].filter(x => x >= wk).length;
+  const next = bzWeekTiers().find(([k]) => week < k);
+  const streak = n ? '🔥 ' + n + ' ' + plural(n, 'день', 'дня', 'дней', 'day', 'days') + L(' подряд', ' in a row') : '';
+  const todo = done ? '' : L('Сегодня ещё не было', 'Not played today yet');
+  const bonus = next ? L('неделя ' + week + '/' + next[0] + ' · +' + next[1], 'week ' + week + '/' + next[0] + ' · +' + next[1]) : L('неделя 7/7 ✓', 'week 7/7 ✓');
+  return `<div class="small" style="color:${done ? 'var(--dark-muted)' : 'var(--amber)'};margin-top:4px">${[streak, todo, bonus].filter(Boolean).join(' · ')}</div>`;
+}
 function bzEnd() {
   clearInterval(bzStart.timer);
   const B = UI.bz;
@@ -1466,7 +1486,7 @@ function questCtx() {
     week: {
       days: weekDates.filter(x => readDay(st[x])).length,
       checks: checks.filter(c => c.date >= wk && chOf(c)).length,
-      bzDays: new Set(bz.filter(c => c.date >= wk).map(c => c.date)).size,
+      bzDays: new Set(bz.filter(c => c.date >= wk && yes(c.passed)).map(c => c.date)).size,
       bzRight: bz.filter(c => c.date >= wk).reduce((a, c) => a + num(c.score, 0), 0),
       reviews: doneRows().filter(p => p.review && p.updated >= wk).length,
     },
@@ -1489,6 +1509,7 @@ function questList() {
   keys.forEach(k => list.push({ g: 'special', id: 'secret', icon: '🔎', text: 'Тайное слово: в главе ' + k.split(':')[1] + ' есть слово, которое значит «' + SECRETS[k].hint + '». Найди и нажми на него.', p: found[k] ? 1 : 0, n: 1, r: 1, ref: 'secret:' + k }));
   const perfect = (D.checks || []).some(x => x.date === t && x.book_id !== 'blitz' && x.chapter !== 'final' && num(x.total, 0) > 0 && num(x.score, 0) === num(x.total, 0));
   list.push({ g: 'special', id: 'perfect', icon: '🎯', text: L('Проверка главы без единой ошибки', 'Story questions with no mistakes'), p: perfect ? 1 : 0, n: 1, r: 2, ref: 'perfect:' + t });
+  bzWeekTiers().forEach(([n, r], i) => list.push({ g: 'blitz', id: 'bzweek', icon: '⚡'.repeat(i + 1), text: n === 7 ? L('Блиц все 7 дней недели', 'Blitz on all 7 days of the week') : L('Блиц ' + n + ' ' + plural(n, 'день', 'дня', 'дней') + ' на этой неделе', 'Blitz on ' + n + ' days this week'), p: Math.min(c.week.bzDays, n), n, r, ref: 'bzweek' + n + ':' + wk }));
   seeded(WEEKLY_QUESTS.filter(q => !q.when || q.when(c)), 'w' + wk).slice(0, 2).forEach(q => list.push(mk('week', q, wk)));
   if (cur && !isDone(s.cur_book)) {
     const end = new Date(); end.setMonth(end.getMonth() + 1, 0);
@@ -1507,7 +1528,7 @@ VIEWS.quests = () => {
         <div class="row"><div class="bar grow ${ok ? 'green' : ''}"><i style="width:${Math.round(Math.min(1, q.p / q.n) * 100)}%"></i></div><span class="small muted" style="width:52px;text-align:right">${Math.min(q.p, q.n)} / ${q.n}</span></div></div>
       ${ok && !got ? `<button class="btn amber small" data-act="claim" data-ref="${esc(q.ref)}" data-r="${q.r}">${L('Забрать', 'Claim')} +${q.r}</button>` : `<span class="reward ${got ? 'got' : ''}">${got ? '✓ +' + q.r : '+' + q.r + L(' мин', '')}</span>`}</div>`;
   };
-  const groups = (EN() ? [['day', 'Today'], ['combo', 'Combo'], ['special', 'Special'], ['week', 'Week and month']] : [['day', 'Сегодня'], ['combo', 'Комбо'], ['special', 'Особые'], ['week', 'Неделя и месяц']])
+  const groups = (EN() ? [['day', 'Today'], ['combo', 'Combo'], ['blitz', 'Blitz week'], ['special', 'Special'], ['week', 'Week and month']] : [['day', 'Сегодня'], ['combo', 'Комбо'], ['blitz', 'Блиц-неделя'], ['special', 'Особые'], ['week', 'Неделя и месяц']])
     .map(([g, t]) => { const items = list.filter(q => q.g === g); return items.length ? `<section class="stack"><h2 style="margin:0">${t}</h2>${items.map(card).join('')}</section>` : ''; }).join('');
   return `<div class="page"><header class="head"><h1>${L('Задания', 'Quests')}</h1>${info('quests')}<span class="muted">${done}${L(' из ', ' of ')}${list.length}</span></header>${groups}</div>`;
 };
@@ -2241,6 +2262,7 @@ VIEWS.parent = () => {
       ${step('Монет за минуту чтения', 'ratio', 0.1, 0.1, 2, v => ru(v))}
       ${step('Вся книга (финальная проверка)', 'final_pct', 10, 0, 200, v => '+' + v + '% от глав')}
       ${step('Раунд Блица (за 20+ верных вдвое)', 'blitz_reward', 1, 0, 10, v => coins(v))}
+      ${step('Блиц-неделя: бонус за 7 дней из 7', 'blitz_week', 5, 0, 60, () => bzWeekTiers().map(([n, r]) => n + ' дн. +' + r).join(' · '))}
       <div class="grid4" style="grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin-top:14px">${[[-2, 'на 2+ года проще'], [-1, 'на год проще'], [0, 'его уровень'], [1, 'на год сложнее'], [2, 'на 2 года сложнее (предел)']].map(([d, l]) => `<div class="fact" style="text-align:center"><b>×${ru(MULT[String(d)])}</b><span class="tiny muted">${l}</span></div>`).join('')}</div>
       <div class="stepper"><span class="grow">Обмен на экранное время</span><button class="btn small ${screenOn() ? 'ghost' : ''}" data-act="toggleScreen" style="width:auto">${screenOn() ? 'Выключить' : 'Включить'}</button></div>
       <div class="stepper"><span class="grow">Манга за монеты</span><button class="btn small ${yes(s.manga_on) ? 'ghost' : ''}" data-act="toggleManga" style="width:auto">${yes(s.manga_on) ? 'Выключить' : 'Включить'}</button></div>

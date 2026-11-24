@@ -103,7 +103,6 @@ let DAILY_QUESTS = [
 let WEEKLY_QUESTS = [
   { id: 'days', icon: '📅', text: 'Читай 5 дней из 7', n: 5, r: 5, p: c => c.week.days },
   { id: 'chw', icon: '📚', text: 'Пройди 3 главы за неделю', n: 3, r: 4, p: c => c.week.checks },
-  { id: 'bzw', icon: '⚡', text: 'Сыграй в Блиц 4 дня из 7', n: 4, r: 4, p: c => c.week.bzDays },
   { id: 'words', icon: '🔤', text: '30 верных ответов в Блице за неделю', n: 30, r: 4, p: c => c.week.bzRight },
   { id: 'review', icon: '🖋️', text: 'Напиши отзыв о прочитанной книге', n: 1, r: 3, p: c => c.week.reviews, when: c => c.unreviewed },
 ];
@@ -190,7 +189,6 @@ const DAILY_QUESTS_EN = [
 const WEEKLY_QUESTS_EN = [
   { id: 'days', icon: '📅', text: 'Read on 5 days out of 7', n: 5, r: 5, p: c => c.week.days },
   { id: 'chw', icon: '📚', text: 'Finish 2 stories this week', n: 2, r: 4, p: c => c.week.checks },
-  { id: 'bzw', icon: '⚡', text: 'Play Blitz on 4 days out of 7', n: 4, r: 4, p: c => c.week.bzDays },
   { id: 'words', icon: '🔤', text: '30 right answers in Blitz this week', n: 30, r: 4, p: c => c.week.bzRight },
   { id: 'review', icon: '🖋️', text: 'Write a review of a story you have read', n: 1, r: 3, p: c => c.week.reviews, when: c => c.unreviewed },
 ];
