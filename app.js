@@ -16,7 +16,7 @@ const yes = v => v === true || v === 'true';
 const fmt = n => Number(n).toLocaleString(EN() ? 'en-GB' : 'ru-RU');
 const IS_LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 
-const APP_VERSION = 51; // keep equal to the number in sw.js's CACHE name
+const APP_VERSION = 52; // keep equal to the number in sw.js's CACHE name
 
 // The English copy lives at /polka-en/ (outside this app's scope, so phones keep them as two apps)
 // and loads its code from /polka/. It keeps its own storage keys.
@@ -2006,10 +2006,16 @@ function enLevelCard(size, extra) {
     <div style="line-height:1.5">${esc(CEFR_TEXT[c[1]])}</div>`;
 }
 /* Her level: CEFR from the vocabulary size of her last test, plus what she has done since (40 words for
-   each finished story, 3 for each word learned in Blitz), so it grows between tests and never drops. */
+   each finished story, 3 for each word learned in Blitz), so it grows between tests and never drops.
+   But reading only shows the level of what is read: B1 stories can take her to the top of B1, not into
+   B2 (a B1+ story just into B2). Beyond that only the level test moves her. */
+const EN_CAP = { A1: 1499, 'A1+': 1750, A2: 2499, 'A2+': 2750, B1: 3249, 'B1+': 3500, B2: 3749, 'B2+': 4000, C1: 4499, 'C1+': 4750, C2: 5000 };
 function enSize() {
+  const test = num(S().vocab_size, 0);
   const learned = (D.words || []).filter(w => w.book_id !== 'case' && (w.st === 'archived' || w.st === 'learned')).length;
-  return num(S().vocab_size, 0) + 40 * doneIds().length + 3 * learned;
+  const cap = doneIds().reduce((a, id) => Math.max(a, (BOOKS[id] && EN_CAP[BOOKS[id].level]) || 0), 0);
+  const grown = test + 40 * doneIds().length + 3 * learned;
+  return Math.max(test, Math.min(grown, cap));
 }
 function enLevelInfo() {
   const size = enSize(), c = cefrOf(size), next = CEFR[CEFR.indexOf(c) + 1];
@@ -2024,7 +2030,7 @@ function enHero() {
     <div class="row" style="gap:10px"><span class="muted">Your English level</span>${info('level')}</div>
     <div class="row" style="gap:14px;align-items:baseline"><div style="font-size:54px;font-weight:700;line-height:1">${E.c[1]}</div><div style="font-size:20px">${E.c[2]}</div></div>
     <div class="bar amber" style="height:8px"><i style="width:${Math.round(E.pct * 100)}%"></i></div>
-    <div class="small muted">${E.next ? 'Next: ' + E.next[1] + ' at about ' + enNum(E.next[0]) + ' words. Finished stories and learned words move you up.' : 'The top level!'}</div>
+    <div class="small muted">${E.next ? 'Next: ' + E.next[1] + ' at about ' + enNum(E.next[0]) + ' words. Finished stories and learned words move you up, as far as the level of the stories; the level check does the rest.' : 'The top level!'}</div>
     <div style="line-height:1.5">${esc(CEFR_TEXT[E.c[1]])}</div>
     ${levelDue() ? `<a class="btn amber" href="#/test" style="align-self:flex-start">Level check · +${coins(LEVEL_REWARD)}</a>` : `<div class="small muted">Next level check in ${enDays(levelDueIn())}</div>`}
     ${levelHistory().length > 1 ? `<div class="stack" style="gap:4px">${levelHistory().slice().reverse().map(h => `<div class="small muted">${esc(enDate(h.d))} · ${esc(h.c || '')} · ≈ ${enNum(Math.round(num(h.s, 0) / 100) * 100)} words</div>`).join('')}</div>` : ''}</section>`;
@@ -2079,12 +2085,14 @@ function enPick(j) {
   const T = UI.test, q = T.q;
   if (!q) return;
   const ok = j === q.a;
-  T.log.push({ id: q.id, ok, band: T.band + 1 });
-  T.inBand.push(ok);
+  T.log.push({ id: q.id, ok, band: T.band + 1, guess: !ok && j !== -1 });
+  T.inBand.push(ok ? 1 : j === -1 ? 0 : -1);
   T.q = null;
   if (T.inBand.length >= EN_PER_BAND) {
-    const right = T.inBand.filter(Boolean).length;
-    T.bands.push(right / EN_PER_BAND);
+    // Correction for guessing: with 4 options, every 3 wrong picks mean about 1 lucky right one.
+    const right = T.inBand.filter(x => x === 1).length, wrong = T.inBand.filter(x => x === -1).length;
+    T.bands.push(Math.max(0, right - wrong / 3) / EN_PER_BAND);
+    (T.raw = T.raw || []).push([right, wrong]);
     T.weak = right <= 1 ? T.weak + 1 : 0;
     T.band++; T.inBand = [];
     if (T.weak >= 2 || T.band >= T.V.bands.length) return enFinish();
@@ -2098,7 +2106,7 @@ function enFinish() {
   T.result = { size, right, n: T.log.length };
   T.phase = 'done';
   const c = cefrOf(size)[1];
-  const hist = levelHistory().concat([{ d: today(), k: 'en', c, s: size, n: right, of: T.log.length, b: T.bands.map(x => Math.round(x * EN_PER_BAND)) }]);
+  const hist = levelHistory().concat([{ d: today(), k: 'en', c, s: size, n: right, of: T.log.length, b: (T.raw || []).map(x => x[0]), w: (T.raw || []).map(x => x[1]) }]);
   save([], { placement_date: today(), vocab_size: size, cefr: c, vt_count: num(S().vt_count, 0) + 1, level_history: JSON.stringify(hist.slice(-12)) });
   render();
 }
