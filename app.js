@@ -16,7 +16,7 @@ const yes = v => v === true || v === 'true';
 const fmt = n => Number(n).toLocaleString(EN() ? 'en-GB' : 'ru-RU');
 const IS_LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 
-const APP_VERSION = 50; // keep equal to the number in sw.js's CACHE name
+const APP_VERSION = 51; // keep equal to the number in sw.js's CACHE name
 
 // The English copy lives at /polka-en/ (outside this app's scope, so phones keep them as two apps)
 // and loads its code from /polka/. It keeps its own storage keys.
@@ -520,13 +520,15 @@ function afterRender(r) {
   if (r.name === 'mread') { mAttach(); mShow(); }
   hydrate();
 }
-window.addEventListener('hashchange', () => { closeSheet(); render(); window.scrollTo(0, 0); });
+window.addEventListener('hashchange', () => { if (typeof TTS !== 'undefined' && TTS.on) ttsStop(); closeSheet(); render(); window.scrollTo(0, 0); });
 
 const ICON = {
   back: '<svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>',
   next: '<svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>',
   close: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
   chat: '<svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg>',
+  speak: '<svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/></svg>',
+  stop: '<svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg>',
   lock: '<svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>',
   unlock: '<svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 7.5-2"/></svg>',
   bolt: '<svg width="20" height="20" viewBox="0 0 24 24" fill="#F0A42C"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>',
@@ -851,6 +853,7 @@ VIEWS.read = async r => {
       <div class="title">${enShort(b) ? esc(b.short) : esc(b.short) + L(' · Глава ', ' · Chapter ') + n}${look ? L(' · просто листаю', ' · just looking') : ''}${secret && !secretFound(id, n) ? ' · 🔎' : ''}</div>
       ${look ? `<button class="r-icon" data-act="toc" aria-label="${L('Главы и страницы', 'Chapters and pages')}" style="width:auto;padding:0 10px;font-size:15px;font-weight:600">${L('Главы', 'Chapters')}</button>` : ''}
       ${aiOn() ? `<button class="r-icon" data-act="chat" aria-label="${L('Обсудить', 'Talk about it')}">${ICON.chat}</button>` : ''}
+      ${ttsOk() ? `<button class="r-icon" id="ttsBtn" data-act="tts" aria-label="Read aloud">${ICON.speak}</button>` : ''}
       <button class="r-icon" data-act="aa" aria-label="${L('Текст', 'Text')}">Aa</button>
     </header>
     <div class="r-body" id="rbody">
@@ -929,6 +932,7 @@ function turnPage(d) {
   const page = Math.max(0, Math.min(R.pages - 1, R.page + d));
   if (page === R.page) return;
   if (d > 0 && !R.look) recordPage(R);
+  if (TTS.on && !TTS.auto) ttsStop();
   R.page = page;
   R.shown = Date.now();
   closePanel();
@@ -1036,6 +1040,7 @@ function aaPanel() {
     <div class="row" style="gap:8px">${seg('font', 'golos', 'Golos', "font-family:'Golos Text'")}${seg('font', 'ptserif', 'PT Serif', "font-family:'PT Serif'")}${seg('font', 'literata', 'Literata', 'font-family:Literata')}</div>
     <div class="row" style="gap:8px">${seg('spacing', 'tight', L('Плотнее', 'Tighter'))}${seg('spacing', 'normal', L('Обычно', 'Normal'))}${seg('spacing', 'wide', L('Шире', 'Wider'))}</div>
     <div class="row" style="gap:8px">${seg('theme', 'light', L('Светлый', 'Light'))}${seg('theme', 'sepia', L('Сепия', 'Sepia'))}${seg('theme', 'dark', L('Тёмный', 'Dark'))}</div>
+    ${ttsOk() ? `<div class="row" style="gap:8px"><span class="small muted" style="flex:0 0 auto">Voice</span>${[[0.7, 'Slow'], [0.85, 'Steady'], [1, 'Normal']].map(([v, l]) => `<button class="seg ${ttsRate() === v ? 'on' : ''}" data-act="ttsRate" data-v="${v}">${l}</button>`).join('')}</div>` : ''}
     <button data-act="bug" style="align-self:flex-start;padding:6px 0;color:var(--blue);font-size:15px;font-weight:600">${L('Сообщить об ошибке', 'Report a problem')}</button>
   </div>`;
 }
@@ -1056,10 +1061,107 @@ function tapWord(wid) {
   R.pop = wid;
   $('#rpanel').innerHTML = `<div class="r-panel r-pop">
     <div class="row" style="align-items:flex-start;justify-content:space-between">
-      <div><div class="base">${esc(g.base)}</div><div class="gram">${esc(g.gram || '')}</div></div>
+      <div><div class="base">${esc(g.base)}${ttsOk() ? ` <button class="r-icon say" data-act="sayWord" data-t="${esc(g.base)}" aria-label="Say the word">${ICON.speak}</button>` : ''}</div><div class="gram">${esc(g.gram || '')}</div></div>
       <button class="r-icon" data-act="closePanel" aria-label="${L('Закрыть', 'Close')}">${ICON.close}</button></div>
     <div class="ru" lang="ru">${esc(g.ru)}</div>
     ${aiOn() ? `<button data-act="askWord" data-base="${esc(g.base)}" style="align-self:flex-start;padding:8px 0;color:var(--blue);font-size:15px;font-weight:600">${L('Всё равно непонятно — спросить', 'Explain in simple English')}</button>` : ''}</div>`;
+}
+// ------------------------------------------------------- read aloud ---
+/* Her app only: the phone's own voice reads the page aloud in British English (speechSynthesis, free,
+   on the device), one sentence at a time with the sentence highlighted, and goes on to the next page by
+   itself. A 🔊 in the word card says the word. Turning a page by hand or leaving the reader stops it. */
+const TTS = { on: false, list: [], i: 0, done: new Set(), auto: false };
+function ttsOk() { return EN() && 'speechSynthesis' in window && typeof SpeechSynthesisUtterance === 'function'; }
+function ttsVoice() {
+  const vs = speechSynthesis.getVoices().filter(v => /^en[-_]/i.test(v.lang));
+  const gb = vs.filter(v => /GB/i.test(v.lang));
+  return gb.find(v => /google/i.test(v.name)) || gb[0] || vs.find(v => /google/i.test(v.name)) || vs[0] || null;
+}
+if ('speechSynthesis' in window) { try { speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged = () => speechSynthesis.getVoices(); } catch (e) { /* no voices */ } }
+function ttsRate() { return num(store.get('tts_rate', 0.85), 0.85); }
+function ttsUtter(text) {
+  const u = new SpeechSynthesisUtterance(text);
+  const v = ttsVoice();
+  if (v) u.voice = v;
+  u.lang = v ? v.lang : 'en-GB';
+  u.rate = ttsRate();
+  return u;
+}
+function sayWord(text) {
+  if (!ttsOk()) return;
+  speechSynthesis.cancel();
+  ttsStop();
+  speechSynthesis.speak(ttsUtter(text));
+}
+/** The sentences that start on the page now showing, as ranges over the text. */
+function ttsSentences() {
+  const vp = $('#rvp'), cols = $('#rcols');
+  if (!vp || !cols) return [];
+  // Page of a point = its distance from the start of the columns (the same while the page slides).
+  const R = UI.r, x0 = cols.getBoundingClientRect().left, stride = (R.W || 1) + (R.G || 0), out = [];
+  const pageOf = x => Math.floor((x - x0 + 2) / stride);
+  cols.querySelectorAll('h1, p').forEach((el, bi) => {
+    const r0 = el.getBoundingClientRect();
+    if (pageOf(r0.right - 4) < R.page || pageOf(r0.left) > R.page) return;
+    const nodes = [], walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    let t, full = '';
+    while ((t = walk.nextNode())) { nodes.push([t, full.length]); full += t.nodeValue; }
+    const at = k => { for (let j = nodes.length - 1; j >= 0; j--) if (nodes[j][1] <= k) return [nodes[j][0], k - nodes[j][1]]; return [nodes[0][0], 0]; };
+    const re = /[^.!?…]+(?:[.!?…]+["”’)]*|$)\s*/g;
+    let m;
+    while ((m = re.exec(full)) && m[0]) {
+      const text = m[0].trim();
+      if (!/\w/.test(text)) continue;
+      const a = m.index + (m[0].length - m[0].trimStart().length), b = a + text.length;
+      const range = document.createRange();
+      const [na, oa] = at(a), [nb, ob] = at(b);
+      range.setStart(na, oa); range.setEnd(nb, Math.min(ob, nb.nodeValue.length));
+      const rect = range.getClientRects()[0];
+      if (!rect || pageOf(rect.left) !== R.page) continue;
+      out.push({ key: UI.r.id + ':' + UI.r.n + ':' + bi + ':' + a, text, range });
+    }
+  });
+  return out.filter(s => !TTS.done.has(s.key));
+}
+function ttsMark(range) {
+  try { if (window.CSS && CSS.highlights) { if (range) CSS.highlights.set('tts', new Highlight(range)); else CSS.highlights.delete('tts'); } } catch (e) { /* old browser: no highlight */ }
+}
+function ttsButton() { const b = $('#ttsBtn'); if (b) { b.innerHTML = TTS.on ? ICON.stop : ICON.speak; b.classList.toggle('on', TTS.on); b.setAttribute('aria-label', TTS.on ? 'Stop reading' : 'Read aloud'); } }
+function ttsStart() {
+  if (!ttsOk() || !UI.r) return;
+  speechSynthesis.cancel();
+  TTS.on = true; TTS.done = new Set();
+  closePanel();
+  ttsPage();
+}
+function ttsPage() {
+  TTS.list = ttsSentences(); TTS.i = 0;
+  ttsButton();
+  ttsNext();
+}
+function ttsNext() {
+  if (!TTS.on || !UI.r || !$('#rcols')) return ttsStop();
+  if (TTS.i >= TTS.list.length) {
+    // End of the page: on to the next one, or stop at the end of the chapter.
+    if (UI.r.page >= UI.r.pages - 1) return ttsStop();
+    TTS.auto = true; turnPage(1); TTS.auto = false;
+    setTimeout(() => { if (TTS.on) ttsPage(); }, 450);
+    return;
+  }
+  const s = TTS.list[TTS.i];
+  TTS.done.add(s.key);
+  ttsMark(s.range);
+  const u = ttsUtter(s.text);
+  u.onend = () => { if (TTS.on) { TTS.i++; ttsNext(); } };
+  u.onerror = e => { if (TTS.on && e.error !== 'interrupted' && e.error !== 'canceled') { TTS.i++; ttsNext(); } };
+  speechSynthesis.speak(u);
+}
+function ttsStop() {
+  const was = TTS.on;
+  TTS.on = false;
+  ttsMark(null);
+  if (was && 'speechSynthesis' in window) speechSynthesis.cancel();
+  ttsButton();
 }
 function secretFound(id, n) { return !!store.get('secrets', {})[id + ':' + n]; }
 
@@ -2448,6 +2550,9 @@ const ACTS = {
   },
   // reader
   pg: el => turnPage(Number(el.dataset.d)),
+  tts: () => { if (TTS.on) ttsStop(); else ttsStart(); },
+  sayWord: el => sayWord(el.dataset.t),
+  ttsRate: el => { store.set('tts_rate', Number(el.dataset.v)); $('#rpanel').innerHTML = aaPanel(); sayWord('This is how fast I will read.'); },
   word: el => { if (UI.r) UI.r.lastWord = sentenceAround(el.closest('p') ? el.closest('p').textContent : '', el.textContent); tapWord(el.dataset.id); },
   closePanel: () => closePanel(),
   toc: () => { const p = $('#rpanel'); if (UI.r.toc) { closePanel(); return; } closePanel(); UI.r.toc = true; p.innerHTML = tocPanel(); },
