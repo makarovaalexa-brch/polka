@@ -16,7 +16,7 @@ const yes = v => v === true || v === 'true';
 const fmt = n => Number(n).toLocaleString(EN() ? 'en-GB' : 'ru-RU');
 const IS_LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 
-const APP_VERSION = 47; // keep equal to the number in sw.js's CACHE name
+const APP_VERSION = 48; // keep equal to the number in sw.js's CACHE name
 
 // The English copy lives at /polka-en/ (outside this app's scope, so phones keep them as two apps)
 // and loads its code from /polka/. It keeps its own storage keys.

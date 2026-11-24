@@ -137,6 +137,13 @@ const BINGO_POOL_EN = {
   'Harder (B1)': b => b.level === 'B1',
   'B1+ or harder': b => ['B1+', 'B2', 'C1'].indexOf(b.level) > -1,
   'Adapted classic': b => has(b.flags, 'classic'),
+  'A Christmas classic': b => has(b.flags, 'classic') && has(b.themes, 'Christmas'),
+  'Jane Austen': b => b.author === 'austen',
+  'Charles Dickens': b => b.author === 'dickens',
+  'O. Henry': b => b.author === 'ohenry',
+  'A book in chapters': b => (b.chapters || 1) > 1,
+  'Written before 1900': b => has(b.flags, 'classic') && b.year < 1900,
+  'Over 10,000 words': b => b.words > 10000,
   'Happy ending': b => has(b.flags, 'happy'),
   'Over 1,000 words': b => b.words > 1000,
   'Over 5,000 words': b => b.words > 5000,
@@ -144,8 +151,9 @@ const BINGO_POOL_EN = {
   'New author for you': (b, c) => c.newAuthor,
   'Same author again': (b, c) => c.sameAuthor,
 };
-// 3 x 2: a theme, some gossip, a secret; then a setting, a step up, and a pace square.
-const BINGO_FIRST_EN = ['Love story', 'Gossip', 'A secret', 'By the sea', 'Harder (B1)', 'Read within a week'];
+// 3 x 2: the short stories on top (a theme, some gossip, a secret); below, the way into the real classics.
+// (She filled the top row on 23 Nov; the bottom row was changed after that, so no filled square moved.)
+const BINGO_FIRST_EN = ['Love story', 'Gossip', 'A secret', 'A Christmas classic', 'Jane Austen', 'A book in chapters'];
 const ACHIEVEMENTS_EN = [
   ['💌', 'Romantic', c => c.count(b => has(b.themes, 'Love')), [1, 5, 10], ['love story', 'love stories']],
   ['☕', 'Gossip queen', c => c.count(b => has(b.themes, 'Gossip')), [1, 3, 5], ['gossip story', 'gossip stories']],
