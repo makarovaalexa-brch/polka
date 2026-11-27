@@ -12,12 +12,12 @@ const Mock = (() => {
   const DEFAULTS = {
     ratio: 0.5, final_pct: 50, blitz_reward: 1, blitz_week: 10, ai_per_day: 0, ai_enabled: true, dob: '2015-09-01',
     lang_months: 112, lang_prog: 0.4, cur_book: 'kasht', locked: true, next_book: 'kur', shortlist: 'kur,timur,deti',
-    manga_on: true, manga_vol_price: 50, screen_on: false,
+    manga_on: true, manga_vol_price: 50, screen_on: false, write_reward: 30,
     best_blitz: 9, wpm: 150, wpm_updated: '', pin_hash: 'demo:1234', gemini_model: 'auto', ai_used_date: '', ai_used: 0,
     placement_date: '', vocab_bands: '', vocab_size: 0, bingo_card: 1, placement_count: 0, level_history: '', vt_count: 0, vt_seen: '', lang: 'ru', user_name: '', cefr: '',
   };
   const CHILD_SETTINGS = ['next_book', 'shortlist', 'best_blitz', 'lang_months', 'lang_prog', 'cur_book', 'locked', 'placement_date', 'vocab_bands', 'vocab_size', 'bingo_card', 'placement_count', 'level_history', 'vt_count', 'vt_seen', 'cefr'];
-  const KEYS = { Progress: 'book_id', Checks: 'id', Words: 'key', Ledger: 'id' };
+  const KEYS = { Progress: 'book_id', Checks: 'id', Words: 'key', Ledger: 'id', Texts: 'id' };
   const id = () => 'r' + Math.random().toString(36).slice(2, 9);
   const pad = n => String(n).padStart(2, '0');
   const day = off => { const d = new Date(); d.setDate(d.getDate() + off); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); };
@@ -27,7 +27,7 @@ const Mock = (() => {
   /** A few weeks of history: four short books read, «Каштанка» on chapter 3, a placement test done. */
   function seed() {
     if (EN_DEMO) return { Settings: Object.assign({}, DEFAULTS, { lang: 'en', user_name: 'Larisa', dob: '', cur_book: '', locked: false, next_book: '', shortlist: '', best_blitz: 0, lang_months: 0, lang_prog: 0 }),
-      Progress: [], Checks: [], Words: [], Ledger: [], Requests: [], Pages: [], AILog: [] };
+      Progress: [], Checks: [], Words: [], Ledger: [], Requests: [], Pages: [], AILog: [], Texts: [] };
     const S = Object.assign({}, DEFAULTS, { placement_date: day(-12), vocab_bands: JSON.stringify([1, 0.96, 0.86, 0.64, 0.4, 0.15]), vocab_size: 7900, placement_count: 1,
       level_history: JSON.stringify([{ d: day(-12), m: 112, t: 112, s: 7900 }]) });
     const done = [['chuk', -40, 5, 'Смешно, как они потеряли телеграмму и молчали. Тайга очень красивая.', '1:Приключения', 7500],
@@ -57,7 +57,7 @@ const Mock = (() => {
     const stats = {};
     for (let d = -20; d <= -1; d++) if (d % 3 !== 0) stats[day(d)] = { pages: 6 + (d % 5), secs: 900, hours: d % 4 === 0 ? { 8: 3 } : { 19: 4, 20: 2 } };
     try { localStorage.setItem('polka_stats', JSON.stringify(stats)); localStorage.setItem('polka_secrets', JSON.stringify({ 'kasht:1': day(-3) })); } catch (e) { /* ignore */ }
-    return { Settings: S, Progress, Checks, Words, Ledger, Requests: [], Pages: [], AILog };
+    return { Settings: S, Progress, Checks, Words, Ledger, Requests: [], Pages: [], AILog, Texts: [] };
   }
 
   function db() {
@@ -72,7 +72,7 @@ const Mock = (() => {
     const s = Object.assign({}, d.Settings);
     delete s.pin_hash;
     s.pin_set = !!d.Settings.pin_hash;
-    return { settings: s, progress: d.Progress, checks: d.Checks, words: d.Words, ledger: d.Ledger, requests: d.Requests, ai_count: d.AILog.length + 4, ai_log: d.AILog.slice(-30) };
+    return { settings: s, progress: d.Progress, checks: d.Checks, words: d.Words, ledger: d.Ledger, requests: d.Requests, ai_count: d.AILog.length + 4, ai_log: d.AILog.slice(-30), texts: d.Texts || (d.Texts = []) };
   }
   function upsert(list, rows, key) {
     rows.forEach(r => {
@@ -88,7 +88,7 @@ const Mock = (() => {
     save: (d, req) => {
       (req.ops || []).forEach(op => {
         if (!KEYS[op.t]) throw new Error('Not allowed: ' + op.t);
-        upsert(d[op.t], op.rows || [], KEYS[op.t]);
+        upsert(d[op.t] || (d[op.t] = []), op.rows || [], KEYS[op.t]);
       });
       Object.keys(req.settings || {}).forEach(k => {
         if (CHILD_SETTINGS.indexOf(k) < 0) throw new Error('Not allowed: ' + k);
@@ -151,6 +151,18 @@ const Mock = (() => {
       const out = {};
       (req.names || []).forEach(n => { out[n] = DRIVE + (/^m_/.test(n) ? 'manga_demo/manga/' : 'img/') + n; });
       return out;
+    },
+    // Мастерская: canned feedback, so every step can be clicked through without Gemini.
+    write: (d, req) => {
+      const i = req.input || {};
+      if (req.op === 'answers') return { a: (i.questions || []).map((q, n) => (q.a || '').length > 12 || n === 1 ? { ok: true, hint: '' } : { ok: false, hint: 'Демо: допиши ещё одно предложение.' }) };
+      if (req.op === 'ideas') return { ideas: ['учитель хвалит при всех', 'мальчики завидуют', 'ночью в пустом классе'] };
+      if (req.op === 'plan') return { ok: true, q: '' };
+      const w = String(i.text || '').split(/\s+/);
+      const frag = n => w.slice(n, n + 3).join(' ');
+      if (req.op === 'review1') return { strength: 'Демо: условие трудно выполнить — с этого и начинается история.', hints: [{ type: 'Запятые', quote: frag(10), hint: 'Демо: тут пропущена запятая.' }, { type: 'Вид глагола', quote: frag(30), hint: 'Демо: это было много раз — что делал?' }], question: 'Демо: что он почувствовал, когда подарок пропал?' };
+      if (req.op === 'review2') return { fixed: ['демо: запятая'], fixes: [{ type: 'Вид глагола', wrong: frag(20), right: frag(20) + ' (демо)', why: 'Демо-исправление.' }], errors: [{ type: 'Запятые', wrong: frag(10), right: frag(10) + ',' }, { type: 'Вид глагола', wrong: frag(30), right: frag(30) }] };
+      throw new Error('Unknown write step');
     },
     ask: (d, req) => {
       const s = d.Settings;

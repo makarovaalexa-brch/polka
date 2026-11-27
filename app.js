@@ -16,7 +16,7 @@ const yes = v => v === true || v === 'true';
 const fmt = n => Number(n).toLocaleString(EN() ? 'en-GB' : 'ru-RU');
 const IS_LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 
-const APP_VERSION = 53; // keep equal to the number in sw.js's CACHE name
+const APP_VERSION = 54; // keep equal to the number in sw.js's CACHE name
 
 // The English copy lives at /polka-en/ (outside this app's scope, so phones keep them as two apps)
 // and loads its code from /polka/. It keeps its own storage keys.
@@ -129,8 +129,8 @@ function saveCache() { store.set('cache', D); }
 
 /* Writes go into an outbox first (so nothing is lost without wifi) and are sent in order.
    Each op is applied to the local copy straight away. */
-const KEYS = { Progress: 'book_id', Checks: 'id', Words: 'key', Ledger: 'id', Bugs: 'id' };
-const LOCAL = { Progress: 'progress', Checks: 'checks', Words: 'words', Ledger: 'ledger', Bugs: 'bugs' };
+const KEYS = { Progress: 'book_id', Checks: 'id', Words: 'key', Ledger: 'id', Bugs: 'id', Texts: 'id' };
+const LOCAL = { Progress: 'progress', Checks: 'checks', Words: 'words', Ledger: 'ledger', Bugs: 'bugs', Texts: 'texts' };
 const OUTBOX = store.get('outbox', []);
 
 function save(ops, settings) {
@@ -677,6 +677,7 @@ VIEWS.home = () => {
         <div class="bar green"><i style="width:${Math.round(qDone / q.length * 100)}%"></i></div>
         <div class="small muted">${nextQ ? esc(nextQ.text.split('.')[0]) + ' · +' + coins(nextQ.r) : L('Все задания выполнены', 'All quests done')}</div></a>
     </div>
+    ${writeTile()}
     ${mangaOn() ? mangaTile() : ''}
   </div>`;
 };
@@ -2373,12 +2374,14 @@ VIEWS.parent = () => {
       ${step('Вся книга (финальная проверка)', 'final_pct', 10, 0, 200, v => '+' + v + '% от глав')}
       ${step('Раунд Блица (за 20+ верных вдвое)', 'blitz_reward', 1, 0, 10, v => coins(v))}
       ${step('Блиц-неделя: бонус за 7 дней из 7', 'blitz_week', 5, 0, 60, () => bzWeekTiers().map(([n, r]) => n + ' дн. +' + r).join(' · '))}
+      ${wTasks().length ? step('Готовый текст в Мастерской', 'write_reward', 5, 0, 100, v => coins(v)) : ''}
       <div class="grid4" style="grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin-top:14px">${[[-2, 'на 2+ года проще'], [-1, 'на год проще'], [0, 'его уровень'], [1, 'на год сложнее'], [2, 'на 2 года сложнее (предел)']].map(([d, l]) => `<div class="fact" style="text-align:center"><b>×${ru(MULT[String(d)])}</b><span class="tiny muted">${l}</span></div>`).join('')}</div>
       <div class="stepper"><span class="grow">Обмен на экранное время</span><button class="btn small ${screenOn() ? 'ghost' : ''}" data-act="toggleScreen" style="width:auto">${screenOn() ? 'Выключить' : 'Включить'}</button></div>
       <div class="stepper"><span class="grow">Манга за монеты</span><button class="btn small ${yes(s.manga_on) ? 'ghost' : ''}" data-act="toggleManga" style="width:auto">${yes(s.manga_on) ? 'Выключить' : 'Включить'}</button></div>
       ${yes(s.manga_on) ? step('Цена тома манги', 'manga_vol_price', 5, 5, 300, v => coins(v)) + mangaParentHtml() : ''}
       <div class="row" style="margin-top:14px"><span class="grow">Поправить баланс</span><button class="btn ghost small" data-act="adjust" data-m="-5">−5</button><button class="btn ghost small" data-act="adjust" data-m="5">+5</button></div>
     </section>
+    ${writeParentHtml()}
     <section class="stack" style="padding-top:18px;border-top:1px solid var(--line);gap:0"><h2 style="margin:0 0 6px">Вопросы к ИИ</h2>
       <div class="stepper"><span class="grow">Вопросы о книгах (Gemini)</span><button class="btn small ${aiOn() ? 'ghost' : ''}" data-act="toggleAi" style="width:auto">${aiOn() ? 'Выключить' : 'Включить'}</button></div>
       ${step('Вопросов в день', 'ai_per_day', 5, 0, 50, v => v ? v + '' : 'без ограничения')}
@@ -2698,6 +2701,342 @@ document.addEventListener('input', e => {
   const t = $('#tocPg'); if (t) t.textContent = UI.r.page + 1;
   showPage();
 });
+
+// ---------------------------------------------------------- Мастерская ---
+/* One weekly text, in steps: pick a gift → 1 passage + three typed answers → 2 words and plan → 3 draft →
+   4 hints (he fixes) → 5 corrections with answers (he fixes) → clean copy, paid once. Every version of
+   the text and all the feedback stay in his Texts row (column data, JSON), for his parents. */
+const W_STEP_NO = [0, 1, 2, 3, 4, 4, 5]; // internal step → «Шаг N из 5»
+function wTasks() { return EN() || typeof WRITE_TASKS === 'undefined' ? [] : WRITE_TASKS; }
+function wTask(id) { return wTasks().find(t => t.id === id); }
+function wOpen(t) { const p = progressOf(t.book); return !!p && (p.status === 'done' || num(p.chapters_passed, 0) >= t.after); }
+function wRows() { return (D.texts || []).slice().sort((a, b) => String(a.started).localeCompare(String(b.started))); }
+function wData(row) { try { return JSON.parse(row && row.data || '{}'); } catch (e) { return {}; } }
+function wRow(id) { return (D.texts || []).find(r => r.id === id); }
+function wNow() { const d = new Date(); return today() + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes()); }
+function wCount(s) { return String(s || '').split(/\s+/).filter(w => /[а-яёa-z0-9]/i.test(w)).length; }
+function wUsed(text, phrase) {
+  const t = String(text || '').toLowerCase().replace(/ё/g, 'е');
+  return String(phrase).toLowerCase().replace(/ё/g, 'е').split(/[\s,]+/).filter(Boolean)
+    .every(w => t.indexOf(w.length > 5 ? w.slice(0, w.length - 2) : w.length > 3 ? w.slice(0, w.length - 1) : w) > -1);
+}
+function wReward() { return num(S().write_reward, 30); }
+function wCurrent(t) { return wRows().find(r => r.task === t.id && r.status !== 'done'); }
+function wRowRecord(row, d, step, status) {
+  return { id: row.id, task: row.task, book_id: row.book_id, started: row.started, updated: wNow(), step, status: status || 'writing',
+    words: wCount(d.final || d.text || ''), data: JSON.stringify(d) };
+}
+/** Saves the text: to the Sheet (step changes), or only on this device while he types. */
+function wSave(row, d, step, status, ops) {
+  save([{ t: 'Texts', rows: [wRowRecord(row, d, step, status)] }].concat(ops || []));
+}
+function wLocal(row, d) {
+  const i = (D.texts || []).findIndex(r => r.id === row.id);
+  if (i > -1) { D.texts[i] = Object.assign({}, D.texts[i], { data: JSON.stringify(d) }); saveCache(); }
+}
+function wCtx(t, d) {
+  const g = t.gifts[d.gift] || [];
+  return { title: t.title, intro: t.intro, trick: t.trick, gift: g[0] || '', cond: g[1] || '' };
+}
+async function wAsk(t, d, op, input) {
+  try { return await api('write', { op, task: wCtx(t, d), input }, 60000); }
+  catch (e) {
+    toast(/AI_BUSY|TIMEOUT/.test(e.message) ? 'Проверка сейчас занята. Можно идти дальше — родители посмотрят сами.'
+      : /fetch|network|load/i.test(e.message) ? 'Нет связи. Попробуй ещё раз, когда будет интернет.' : 'Проверка не получилась. Можно идти дальше.', true);
+    return null;
+  }
+}
+function wBusy(on) { UI.wBusy = on; document.querySelectorAll('[data-wbusy]').forEach(b => { b.disabled = on; if (on) b.dataset.label = b.textContent, b.textContent = 'Проверяю…'; else if (b.dataset.label) b.textContent = b.dataset.label; }); }
+/** Marks the given fragments in a text (underlined, red). */
+function wMark(text, frags, cls) {
+  let html = esc(text);
+  (frags || []).filter(Boolean).forEach(f => { const e = esc(f); const i = html.indexOf(e); if (i > -1) html = html.slice(0, i) + `<u class="${cls || 'wbad'}">${e}</u>` + html.slice(i + e.length); });
+  return html.replace(/\n/g, '<br>');
+}
+const wParas = s => String(s || '').split(/\n+/).map(p => p.trim()).filter(Boolean);
+
+function writeTile() {
+  const t = wTasks()[0];
+  if (!t) return '';
+  const cur = wCurrent(t), done = wRows().filter(r => r.status === 'done');
+  if (!cur && !wOpen(t) && !done.length) return '';
+  const fresh = !cur && wOpen(t) && !done.some(r => r.task === t.id);
+  const line = cur ? 'Шаг ' + W_STEP_NO[num(cur.step, 1)] + ' из 5 · продолжить' : fresh ? 'Новое задание: «' + t.title + '» · +' + coins(wReward()) : 'Мои тексты: ' + done.length;
+  return `<a class="tile ${fresh ? 'dark' : 'light'} row" href="#/write" style="gap:14px;flex-direction:row;align-items:center"><span style="font-size:28px">✍️</span>
+    <div class="grow"><div class="t">Мастерская</div><div class="small" style="${fresh ? 'color:var(--dark-muted)' : ''}">${esc(line)}</div></div><span class="pill">›</span></a>`;
+}
+
+VIEWS.write = r => {
+  const t = wTasks()[0];
+  if (!t) { location.hash = '#/home'; return null; }
+  const row = r.a ? wRow(r.a) : wCurrent(t);
+  const done = wRows().filter(x => x.status === 'done');
+  const head = (step) => `<header class="head">${backBtn('home')}<h1>Мастерская</h1>${step ? `<span class="pill">Шаг ${step} из 5</span>` : ''}</header>`;
+  const mine = done.length ? `<section class="stack" style="gap:8px;margin-top:8px"><h2 style="margin:0">Мои тексты</h2>${done.map((x, i) => {
+    const xd = wData(x); return `<a class="card row" href="#/write/${x.id}" style="gap:12px"><b>№${i + 1}</b><div class="grow"><b>${esc(xd.title || (wTask(x.task) || {}).title || '')}</b><div class="small muted">${esc((BOOKS[x.book_id] || {}).short || '')} · ${dateRu(x.updated)} · ${num(x.words, 0)} слов</div></div><span class="pill">›</span></a>`; }).join('')}</section>` : '';
+
+  if (!row) {
+    if (!wOpen(t) || done.some(x => x.task === t.id)) return `<div class="page">${head()}<section class="card">Новое задание откроется, когда дочитаешь следующую книгу.</section>${mine}</div>`;
+    return `<div class="page">${head()}
+      <section class="stack"><span class="small muted">«${esc((BOOKS[t.book] || {}).short || '')}» · ${esc(t.form)}</span><h2 style="margin:0">${esc(t.title)}</h2><div>${esc(t.intro)}</div></section>
+      <div class="wgifts">${t.gifts.map((g, i) => `<button class="card stack wgift" data-act="wGift" data-i="${i}"><b>${esc(g[0])}</b><span class="small muted">Условие: ${esc(g[1])}</span></button>`).join('')}</div>
+      <div class="small muted">За готовый текст — +${coins(wReward())}. Около часа работы; все шаги можно сделать за один раз или в разные дни.</div>${mine}</div>`;
+  }
+  const d = wData(row), step = num(row.step, 1), g = t.gifts[d.gift] || ['', ''];
+  const giftLine = `<div class="wgiftline"><b>${esc(g[0])}</b> · <span class="muted">условие: ${esc(g[1])}</span></div>`;
+
+  if (row.status === 'done' || step >= 6) {
+    const n = done.findIndex(x => x.id === row.id) + 1;
+    return `<div class="page">${head()}
+      <article class="wpage"><div class="small" style="color:var(--amber-ink)">Мои тексты · №${n || 1} · «${esc((BOOKS[row.book_id] || {}).short || '')}» · ${dateRu(row.updated)}</div>
+        <h2>${esc(d.title || g[0])}</h2>${wParas(d.final).map(p => `<p>${esc(p)}</p>`).join('')}</article>
+      ${d.paid ? `<div class="small muted">+${coins(d.paid)} · приём «${esc(t.trick)}» — в коллекции.</div>` : ''}${mine}</div>`;
+  }
+
+  if (step === 1) {
+    const qs = t.questions.map((q, i) => `<div class="stack" style="gap:6px"><b>${i + 1}. ${esc(q.q)}</b>
+      ${d.ok && d.ok[i] ? `<div class="wans ok">${esc(d.ans[i])}<span class="pill green">${q.key ? 'Верно' : 'Принято'}</span></div>${d.shown && d.shown[i] ? `<div class="small muted">Ответ: ${esc(q.key)}</div>` : ''}`
+        : `<textarea class="field" id="wa${i}" rows="2" autocapitalize="sentences" autocorrect="off" spellcheck="false" placeholder="1–2 предложения">${esc((d.ans || [])[i] || '')}</textarea>${d.hint && d.hint[i] ? `<div class="whint">${esc(d.hint[i])}</div>` : ''}`}</div>`).join('');
+    const all = (d.ok || []).filter(Boolean).length === t.questions.length;
+    return `<div class="page">${head(1)}${giftLine}
+      <section class="stack"><h2 style="margin:0">Как это сделал автор?</h2><div class="muted">Приём недели — <b>${esc(t.trick)}</b>. Прочитай отрывок и ответь на вопросы своими словами.</div></section>
+      <blockquote class="wquote">${t.passage.map(p => `<p>${esc(p)}</p>`).join('')}<div class="small muted">${esc(t.src)}</div></blockquote>
+      ${qs}
+      ${all ? `<button class="btn" data-act="wStep" data-s="2">Дальше: слова и план ›</button>` : `<button class="btn" data-act="wAns" data-wbusy>Проверить</button>`}</div>`;
+  }
+
+  if (step === 2) {
+    const sel = d.words || [];
+    const boxes = t.plan.map((p, i) => {
+      if (p.from === 'gift') return `<div class="wbox"><div class="small muted">${esc(p.t)}</div><b>${esc(g[0])}: ${esc(g[1])}</b></div>`;
+      const ideas = (UI.wIdeas && UI.wIdeas.i === i) ? UI.wIdeas.list : null;
+      return `<div class="wbox stack" style="gap:6px"><div class="row"><div class="small muted grow">${esc(p.t)}${p.from === 'a3' ? ' · из ответа 3' : ''}</div><button class="chip" data-act="wIdeas" data-i="${i}" data-wbusy>Подскажи</button></div>
+        <b style="font-size:15px">${esc(p.q)}</b><input class="field" id="wp${i}" value="${esc((d.plan || [])[i] || '')}" placeholder="несколько слов" autocorrect="off" spellcheck="false">
+        ${ideas ? `<div class="row wrap" style="gap:6px">${ideas.map(x => `<button class="chip" data-act="wIdea" data-i="${i}" data-v="${esc(x)}">${esc(x)}</button>`).join('')}</div>` : ''}
+        <div class="tiny muted">В книге: ${esc(p.book)}</div></div>`;
+    }).join('');
+    return `<div class="page">${head(2)}${giftLine}
+      <section class="stack"><h2 style="margin:0">Мои слова</h2><div class="muted">Выбери 6–8 слов и оборотов из книги — их надо будет использовать в тексте.</div>
+        <div class="row wrap" style="gap:8px">${t.words.map(w => `<button class="chip ${sel.indexOf(w) > -1 ? 'on' : ''}" data-act="wWord" data-w="${esc(w)}">${esc(w)}</button>`).join('')}</div>
+        <div class="small muted">Выбрано ${sel.length} из ${t.words.length}</div></section>
+      <section class="stack"><h2 style="margin:0">План</h2><div class="muted">Как в книге: подарок с условием, чудо, соблазн, конец. В каждом пункте — несколько слов.</div>
+        <div class="wplan">${boxes}</div>${d.planQ ? `<div class="whint">${esc(d.planQ)}</div>` : ''}</section>
+      <button class="btn" data-act="wPlan" data-wbusy>Проверить план</button></div>`;
+  }
+
+  if (step === 3) {
+    const text = d.text || '', n = wCount(text);
+    return `<div class="page">${head(3)}${giftLine}
+      <section class="stack"><h2 style="margin:0">Черновик</h2><div class="muted">Просто пиши. Ошибки — потом. Цель — ${t.target[0]}–${t.target[1]} слов.</div></section>
+      <div class="wplan small">${t.plan.map((p, i) => `<div class="wbox"><div class="tiny muted">${esc(p.t)}</div>${esc(i === 0 ? g[0] + ': ' + g[1] : (d.plan || [])[i] || '')}</div>`).join('')}</div>
+      <div class="row wrap" id="wchips" style="gap:6px">${wChips(t, d, text)}</div>
+      <textarea class="field wtext" id="wtext" rows="16" autocapitalize="sentences" autocorrect="off" autocomplete="off" spellcheck="false" placeholder="Король подумал и дал Алёше другой подарок…">${esc(text)}</textarea>
+      <div class="row"><span class="pill ${n >= t.target[0] ? 'green' : ''}" id="wcount">${n} ${plural(n, 'слово', 'слова', 'слов')} · цель ${t.target[0]}–${t.target[1]}</span><span class="grow"></span>
+        <button class="btn" data-act="wDraft" data-wbusy>Готово — на проверку</button></div></div>`;
+  }
+
+  if (step === 4) {
+    const r1 = d.r1 || {}, hints = r1.hints || [];
+    return `<div class="page">${head(4)}${giftLine}
+      <section class="stack"><h2 style="margin:0">Правка</h2><div class="muted">Подсказки показывают, где искать. Исправь сам прямо в тексте.</div></section>
+      ${r1.error ? `<div class="whint">Проверка сейчас не получилась. Перечитай текст и исправь, что заметишь.</div>` : ''}
+      ${r1.strength ? `<div class="wfb good"><div class="tiny muted">Получилось</div>${esc(r1.strength)}</div>` : ''}
+      ${hints.map((h, i) => `<div class="wfb fix"><div class="tiny muted">${i + 1} · ${esc(h.type)}</div>«${esc(h.quote)}» — ${esc(h.hint)}</div>`).join('')}
+      ${r1.question ? `<div class="wfb ask"><div class="tiny muted">Вопрос</div>${esc(r1.question)}</div>` : ''}
+      <div class="wprev">${wMark(d.draft, hints.map(h => h.quote))}</div>
+      <textarea class="field wtext" id="wtext" rows="16" autocapitalize="sentences" autocorrect="off" autocomplete="off" spellcheck="false">${esc(d.text || d.draft || '')}</textarea>
+      <div class="row"><span class="pill" id="wcount">${wCount(d.text || d.draft)} слов</span><span class="grow"></span><button class="btn" data-act="wFix1" data-wbusy>Исправил — дальше</button></div></div>`;
+  }
+
+  // step 5: corrections with answers
+  const r2 = d.r2 || {}, fixes = r2.fixes || [];
+  return `<div class="page">${head(4)}${giftLine}
+    <section class="stack"><h2 style="margin:0">Второй проход</h2><div class="muted">Здесь то, что трудно найти самому, — уже с ответом. Исправь в тексте и дай ему название.</div></section>
+    ${r2.error ? `<div class="whint">Проверка сейчас не получилась. Можно сразу сделать чистовик.</div>` : ''}
+    ${(r2.fixed || []).length ? `<div class="wfb good"><div class="tiny muted">Исправлено</div>${r2.fixed.map(esc).join(' · ')}</div>` : ''}
+    ${fixes.map(f => `<div class="wfb fix"><div class="tiny muted">${esc(f.type)}</div>«<span class="wbad">${esc(f.wrong)}</span>» → «<span class="wgood">${esc(f.right)}</span>». ${esc(f.why || '')}</div>`).join('')}
+    ${!r2.error && !fixes.length ? `<div class="wfb good">Ошибок больше не видно.</div>` : ''}
+    <input class="field" id="wtitle" value="${esc(d.title || g[0])}" placeholder="Название">
+    <textarea class="field wtext" id="wtext" rows="16" autocapitalize="sentences" autocorrect="off" autocomplete="off" spellcheck="false">${esc(d.text || '')}</textarea>
+    <div class="row"><span class="pill" id="wcount">${wCount(d.text)} слов</span><span class="grow"></span><button class="btn amber" data-act="wFinal">В чистовик · +${coins(wReward())}</button></div></div>`;
+};
+function wChips(t, d, text) {
+  return (d.words || []).map(w => `<span class="chip ${wUsed(text, w) ? 'used' : ''}">${esc(w)}</span>`).join('');
+}
+document.addEventListener('input', e => {
+  if (e.target.id !== 'wtext') return;
+  const t = wTasks()[0], row = route().a ? wRow(route().a) : t && wCurrent(t);
+  if (!t || !row) return;
+  const d = wData(row), text = e.target.value, n = wCount(text);
+  const c = $('#wcount');
+  if (c) { c.textContent = num(row.step, 1) === 3 ? n + ' ' + plural(n, 'слово', 'слова', 'слов') + ' · цель ' + t.target[0] + '–' + t.target[1] : n + ' слов'; c.classList.toggle('green', num(row.step, 1) === 3 && n >= t.target[0]); }
+  const ch = $('#wchips'); if (ch) ch.innerHTML = wChips(t, d, text);
+  clearTimeout(UI.wTimer);
+  UI.wTimer = setTimeout(() => { d.text = text; wLocal(row, d); }, 600);
+});
+function wGet() { const t = wTasks()[0]; const r = route(); const row = r.a ? wRow(r.a) : t && wCurrent(t); return row ? { t: wTask(row.task) || t, row, d: wData(row) } : { t }; }
+
+Object.assign(ACTS, {
+  wGift: el => {
+    const t = wTasks()[0]; if (!t || wCurrent(t)) return;
+    const row = { id: rid(), task: t.id, book_id: t.book, started: wNow() };
+    wSave(row, { gift: Number(el.dataset.i), ans: ['', '', ''], ok: [false, false, false], hint: ['', '', ''], tries: [0, 0, 0], shown: [false, false, false], words: [], plan: ['', '', '', ''], versions: [] }, 1);
+    location.hash = '#/write'; render();
+  },
+  wStep: el => {
+    const { t, row, d } = wGet(); if (!row) return;
+    const s = Number(el.dataset.s);
+    if (s === 2 && !d.plan[2]) d.plan[2] = d.ans[2] || '';
+    wSave(row, d, s); render(); window.scrollTo(0, 0);
+  },
+  wAns: async () => {
+    const { t, row, d } = wGet(); if (!row || UI.wBusy) return;
+    t.questions.forEach((q, i) => { const el = $('#wa' + i); if (el) d.ans[i] = el.value.trim(); });
+    const todo = t.questions.map((q, i) => i).filter(i => !d.ok[i]);
+    if (todo.some(i => !d.ans[i])) { toast('Ответь на все вопросы', true); wLocal(row, d); return; }
+    wBusy(true);
+    const res = await wAsk(t, d, 'answers', { passage: t.passage.join('\n'), questions: t.questions.map((q, i) => ({ q: q.q, key: q.key || '', a: d.ans[i] })) });
+    wBusy(false);
+    const a = res && res.a || [];
+    d.checks = (d.checks || []).concat([{ at: wNow(), ans: d.ans.slice(), res: res ? a : 'error' }]);
+    todo.forEach(i => {
+      const x = a[i];
+      if (!res || (x && x.ok)) { d.ok[i] = true; d.hint[i] = ''; return; }
+      d.tries[i] = num(d.tries[i], 0) + 1;
+      if (d.tries[i] >= 2) { d.ok[i] = true; d.hint[i] = ''; if (t.questions[i].key) d.shown[i] = true; }
+      else d.hint[i] = (x && x.hint) || t.questions[i].look || 'Добавь ещё одно предложение.';
+    });
+    wSave(row, d, 1); render();
+  },
+  wWord: el => {
+    const { row, d } = wGet(); if (!row) return;
+    const w = el.dataset.w, i = d.words.indexOf(w);
+    wKeepPlan(d);
+    if (i > -1) d.words.splice(i, 1); else if (d.words.length >= 8) { toast('Не больше восьми', true); return; } else d.words.push(w);
+    wLocal(row, d); render();
+  },
+  wIdeas: async el => {
+    const { t, row, d } = wGet(); if (!row || UI.wBusy) return;
+    wKeepPlan(d); wLocal(row, d);
+    const i = Number(el.dataset.i), p = t.plan[i];
+    wBusy(true);
+    const res = await wAsk(t, d, 'ideas', { point: p.t + ': ' + p.q, plan: t.plan.map((x, j) => x.t + ': ' + (j === 0 ? (t.gifts[d.gift] || []).join(' — ') : d.plan[j] || '')) });
+    wBusy(false);
+    if (res && res.ideas) { UI.wIdeas = { i, list: res.ideas.slice(0, 3) }; d.ideas = (d.ideas || []).concat([{ at: wNow(), i, list: UI.wIdeas.list }]); wLocal(row, d); }
+    render();
+  },
+  wIdea: el => { const inp = $('#wp' + el.dataset.i); if (inp) inp.value = el.dataset.v; UI.wIdeas = null; const { row, d } = wGet(); if (row) { wKeepPlan(d); wLocal(row, d); } render(); },
+  wPlan: async () => {
+    const { t, row, d } = wGet(); if (!row || UI.wBusy) return;
+    wKeepPlan(d);
+    if (d.words.length < 6) { toast('Выбери 6–8 слов', true); wLocal(row, d); return; }
+    if (t.plan.some((p, i) => p.from !== 'gift' && !d.plan[i])) { toast('Заполни все пункты плана', true); wLocal(row, d); return; }
+    wBusy(true);
+    const res = await wAsk(t, d, 'plan', { plan: t.plan.map((p, i) => p.t + ': ' + (i === 0 ? (t.gifts[d.gift] || []).join(' — ') : d.plan[i])) });
+    wBusy(false);
+    d.planTries = num(d.planTries, 0) + 1;
+    d.planChecks = (d.planChecks || []).concat([{ at: wNow(), plan: d.plan.slice(), res: res || 'error' }]);
+    UI.wIdeas = null;
+    if (res && !res.ok && d.planTries < 2) { d.planQ = res.q || ''; wSave(row, d, 2); render(); return; }
+    d.planQ = '';
+    wSave(row, d, 3); render(); window.scrollTo(0, 0);
+  },
+  wDraft: async () => {
+    const { t, row, d } = wGet(); if (!row || UI.wBusy) return;
+    const text = ($('#wtext') || {}).value || d.text || '';
+    d.text = text;
+    if (wCount(text) < t.minWords) { toast('Пока ' + wCount(text) + ' слов. Нужно хотя бы ' + t.minWords + ', цель — ' + t.target[0] + '–' + t.target[1] + '.', true); wLocal(row, d); return; }
+    d.draft = text;
+    d.versions.push({ k: 'draft', at: wNow(), text });
+    wSave(row, d, 3);
+    wBusy(true);
+    const res = await wAsk(t, d, 'review1', { text, words: d.words });
+    wBusy(false);
+    d.r1 = res || { error: true };
+    wSave(row, d, 4); render(); window.scrollTo(0, 0);
+  },
+  wFix1: async () => {
+    const { t, row, d } = wGet(); if (!row || UI.wBusy) return;
+    const text = ($('#wtext') || {}).value || d.text || d.draft;
+    d.text = text;
+    d.versions.push({ k: 'fix1', at: wNow(), text });
+    wSave(row, d, 4);
+    wBusy(true);
+    const res = await wAsk(t, d, 'review2', { draft: d.draft, hints: (d.r1 || {}).hints || [], text });
+    wBusy(false);
+    d.r2 = res || { error: true };
+    if (res && res.errors) d.errors = res.errors;
+    wSave(row, d, 5); render(); window.scrollTo(0, 0);
+  },
+  wFinal: () => {
+    const { t, row, d } = wGet(); if (!row) return;
+    const text = (($('#wtext') || {}).value || d.text || '').trim();
+    if (wCount(text) < t.minWords) { toast('Текст стал слишком коротким', true); return; }
+    d.text = text; d.final = text; d.title = (($('#wtitle') || {}).value || '').trim() || (t.gifts[d.gift] || [])[0];
+    d.versions.push({ k: 'final', at: wNow(), text });
+    const paid = (D.ledger || []).some(l => l.kind === 'write' && l.ref === row.id);
+    const ops = paid ? [] : [ledger('write', wReward(), row.id, d.title)];
+    if (!paid) d.paid = wReward();
+    wSave(row, d, 6, 'done', ops);
+    if (!paid) toast('+' + coins(wReward()));
+    location.hash = '#/write/' + row.id; render(); window.scrollTo(0, 0);
+  },
+  wPar: el => { location.hash = '#/wpar/' + el.dataset.id; },
+});
+function wKeepPlan(d) { [1, 2, 3].forEach(i => { const el = $('#wp' + i); if (el) d.plan[i] = el.value.trim(); }); }
+
+// ---- for parents: every text with all its versions (changes marked) and the feedback he got.
+/** Word-level difference between two versions: removed words struck out, added ones green. */
+function wDiff(a, b) {
+  const A = String(a || '').split(/(\s+)/), B = String(b || '').split(/(\s+)/);
+  const n = A.length, m = B.length;
+  if (n * m > 400000) return esc(b);
+  const L2 = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) L2[i][j] = A[i] === B[j] ? L2[i + 1][j + 1] + 1 : Math.max(L2[i + 1][j], L2[i][j + 1]);
+  let i = 0, j = 0, out = '';
+  while (i < n || j < m) {
+    if (i < n && j < m && A[i] === B[j]) { out += esc(A[i]); i++; j++; }
+    else if (j < m && (i >= n || L2[i][j + 1] >= L2[i + 1][j])) { out += /^\s+$/.test(B[j]) ? esc(B[j]) : `<ins>${esc(B[j])}</ins>`; j++; }
+    else { out += /^\s+$/.test(A[i]) ? '' : `<del>${esc(A[i])}</del>`; i++; }
+  }
+  return out.replace(/\n/g, '<br>');
+}
+const W_KIND = { draft: 'Черновик', fix1: 'После подсказок', fix2: 'После второго прохода', final: 'Чистовик' };
+function writeParentHtml() {
+  const rows = wRows();
+  if (!wTasks().length) return '';
+  const errs = {};
+  rows.forEach(r => (wData(r).errors || []).forEach(e => { const k = e.type || 'Другое'; (errs[k] = errs[k] || []).push(e); }));
+  const top = Object.keys(errs).sort((a, b) => errs[b].length - errs[a].length).slice(0, 5);
+  return `<section class="stack" style="padding-top:18px;border-top:1px solid var(--line);gap:8px"><h2 style="margin:0">Мастерская</h2>
+    ${rows.length ? rows.slice().reverse().map(r => { const d = wData(r), t = wTask(r.task) || {};
+      return `<button class="card row" data-act="wPar" data-id="${r.id}" style="gap:12px;text-align:left"><div class="grow"><b>${esc(d.title || t.title || '')}</b>
+        <div class="small muted">${esc(((t.gifts || [])[d.gift] || [])[0] || '')} · ${dateRu(r.started)} · ${r.status === 'done' ? 'готов, ' + num(r.words, 0) + ' слов' : 'шаг ' + W_STEP_NO[num(r.step, 1)] + ' из 5'}</div></div><span class="pill">›</span></button>`; }).join('')
+      : `<div class="small muted">Текстов пока нет. Первое задание откроется после «${esc((BOOKS[(wTasks()[0] || {}).book] || {}).short || '')}».</div>`}
+    ${top.length ? `<div class="stack" style="gap:4px;margin-top:6px"><b>Что повторяется</b>${top.map(k => `<div class="small">${esc(k)} — ${errs[k].length}: <span class="muted">${errs[k].slice(0, 3).map(e => '«' + esc(e.wrong) + '» → «' + esc(e.right) + '»').join(', ')}</span></div>`).join('')}</div>` : ''}
+  </section>`;
+}
+VIEWS.wpar = r => {
+  if (!UI.parentOk) { location.hash = '#/parent'; return null; }
+  const row = wRow(r.a); if (!row) { location.hash = '#/parent'; return null; }
+  const d = wData(row), t = wTask(row.task) || { questions: [], plan: [], gifts: [] }, g = t.gifts[d.gift] || ['', ''];
+  const vs = d.versions || [];
+  const r1 = d.r1 || {}, r2 = d.r2 || {};
+  const box = (title, html) => `<section class="stack" style="gap:6px;padding-top:14px;border-top:1px solid var(--line)"><h3 style="margin:0">${title}</h3>${html}</section>`;
+  return `<div class="page white full"><header class="head">${backBtn('parent')}<h1>${esc(d.title || t.title)}</h1></header>
+    <div class="small muted">${esc(t.title)} · начат ${dateRu(row.started)} · ${row.status === 'done' ? 'готов ' + dateRu(row.updated) : 'шаг ' + W_STEP_NO[num(row.step, 1)] + ' из 5'}</div>
+    ${box('Подарок', `<div><b>${esc(g[0])}</b> — ${esc(g[1])}</div>`)}
+    ${box('Шаг 1 · ответы на вопросы', t.questions.map((q, i) => `<div><b class="small">${esc(q.q)}</b><div>${esc((d.ans || [])[i] || '—')} ${(d.ok || [])[i] ? `<span class="pill green">${(d.shown || [])[i] ? 'показан ответ' : num((d.tries || [])[i], 0) ? 'со 2-й попытки' : 'принято'}</span>` : ''}</div></div>`).join('')
+      + ((d.checks || []).filter(c => Array.isArray(c.res)).length ? `<details><summary class="small muted">Все попытки и подсказки</summary>${d.checks.map(c => `<div class="small">${esc(c.at)}: ${Array.isArray(c.res) ? c.res.map((x, i) => (x.ok ? '✓' : '✗ «' + esc(x.hint) + '»') + ' ' + esc(c.ans[i] || '')).join(' | ') : 'проверка не работала'}</div>`).join('')}</details>` : ''))}
+    ${box('Шаг 2 · слова и план', `<div class="small">${(d.words || []).map(esc).join(', ') || '—'}</div>${t.plan.map((p, i) => `<div class="small"><b>${esc(p.t)}:</b> ${esc(i === 0 ? g.join(' — ') : (d.plan || [])[i] || '—')}</div>`).join('')}
+      ${(d.planChecks || []).filter(c => c.res && c.res.q).map(c => `<div class="small muted">Вопрос к плану: ${esc(c.res.q)}</div>`).join('')}`)}
+    ${vs.map((v, i) => box(`${W_KIND[v.k] || v.k} · ${wCount(v.text)} слов · <span class="small muted">${esc(String(v.at).replace('T', ' '))}</span>`,
+      `<div class="wdiff">${i ? wDiff(vs[i - 1].text, v.text) : esc(v.text).replace(/\n/g, '<br>')}</div>`
+      + (v.k === 'draft' && (r1.hints || r1.strength) ? `<div class="stack" style="gap:4px"><b class="small">Подсказки после черновика</b>${r1.strength ? `<div class="small">✓ ${esc(r1.strength)}</div>` : ''}${(r1.hints || []).map(h => `<div class="small">${esc(h.type)}: «${esc(h.quote)}» — ${esc(h.hint)}</div>`).join('')}${r1.question ? `<div class="small">? ${esc(r1.question)}</div>` : ''}</div>` : '')
+      + (v.k === 'fix1' && (r2.fixes || r2.fixed) ? `<div class="stack" style="gap:4px"><b class="small">Второй проход</b>${(r2.fixed || []).length ? `<div class="small">Исправил сам: ${r2.fixed.map(esc).join(' · ')}</div>` : ''}${(r2.fixes || []).map(f => `<div class="small">${esc(f.type)}: «${esc(f.wrong)}» → «${esc(f.right)}» ${esc(f.why || '')}</div>`).join('')}</div>` : ''))).join('')}
+    ${(d.errors || []).length ? box('Все ошибки черновика', d.errors.map(e => `<div class="small">${esc(e.type)}: «${esc(e.wrong)}» → «${esc(e.right)}»</div>`).join('')) : ''}
+  </div>`;
+};
 
 // -------------------------------------------------------------- start ---
 
