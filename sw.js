@@ -1,6 +1,6 @@
 // Caches the app shell and every book opened, so reading works without wifi.
 // Progress is cached separately by app.js in localStorage and sent when there is signal.
-const CACHE = 'polka-v54';
+const CACHE = 'polka-v55';
 const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'mock.js', 'catalog.js', 'manifest.webmanifest', 'icon-192.png'];
 
 self.addEventListener('install', e => {

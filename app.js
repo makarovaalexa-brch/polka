@@ -16,7 +16,7 @@ const yes = v => v === true || v === 'true';
 const fmt = n => Number(n).toLocaleString(EN() ? 'en-GB' : 'ru-RU');
 const IS_LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 
-const APP_VERSION = 54; // keep equal to the number in sw.js's CACHE name
+const APP_VERSION = 55; // keep equal to the number in sw.js's CACHE name
 
 // The English copy lives at /polka-en/ (outside this app's scope, so phones keep them as two apps)
 // and loads its code from /polka/. It keeps its own storage keys.
@@ -2196,8 +2196,12 @@ VIEWS.manga = async () => {
     const open = mangaUnlocked(v.id), nx = mangaNext(s), isNext = nx && nx.v.id === v.id;
     const chs = mangaFlat(s).filter(x => x.v === v);
     const pages = v.pages.length;
+    // An open volume reads as one book: one button (from where he stopped), chapters folded away underneath.
+    const at = mPos(v), done = chs.filter(x => read[x.key]).length;
     const body = open
-      ? chs.map(x => `<a class="mch" href="#/mread/${esc(v.id)}/${x.i}"><span class="grow">${esc(chName(x.c))}</span><span class="small muted">${x.c.end - x.c.start} стр.</span>${read[x.key] ? '<span class="pill green">✓</span>' : '<span class="pill">Читать ›</span>'}</a>`).join('')
+      ? `<a class="btn small" href="#/mread/${esc(v.id)}" style="align-self:flex-start">${at > 0 ? 'Продолжить · стр. ' + (at + 1) + ' из ' + pages : 'Читать'} ›</a>
+        <details class="mchs"><summary class="small muted">Главы (${chs.length})${done ? ' · прочитано ' + done : ''}</summary><div class="stack" style="gap:6px;margin-top:8px">
+        ${chs.map(x => `<a class="mch" href="#/mread/${esc(v.id)}/${x.i}"><span class="grow">${esc(chName(x.c))}</span><span class="small muted">${x.c.end - x.c.start} стр.</span>${read[x.key] ? '<span class="pill green">✓</span>' : '<span class="pill">›</span>'}</a>`).join('')}</div></details>`
       : isNext ? `<div class="small muted">${chs.length} ${plural(chs.length, 'глава', 'главы', 'глав')} · ${pages} стр.</div>
           <button class="btn small" data-act="mangaOpen" data-k="${esc(v.id)}" ${avail < price ? 'disabled' : ''} style="align-self:flex-start">Открыть том · ${coins(price)}</button>
           ${avail < price ? `<div class="small muted">Ещё ${coins(price - avail)} — и том твой</div>` : ''}`
@@ -2212,51 +2216,64 @@ VIEWS.manga = async () => {
     ${series || '<div class="empty">Манга скоро появится.</div>'}</div>`;
 };
 
+// The reader shows a whole volume as one book: chapters follow each other with no stop in between.
+// #/mread/<vol> carries on from where he stopped; #/mread/<vol>/<i> starts at chapter i.
+// Where he is: mpos[<vol id>] = page in the volume (older versions kept a page per chapter, under '<vol>:<chapter>').
+function mPos(v) {
+  const pos = store.get('mpos', {}) || {};
+  if (pos[v.id] != null) return Math.max(0, Math.min(num(pos[v.id], 0), v.pages.length - 1));
+  let best = 0;
+  v.chapters.forEach(c => { const p = pos[v.id + ':' + c.n]; if (p != null) best = Math.max(best, c.start + num(p, 0)); });
+  return Math.min(best, v.pages.length - 1);
+}
+const mChAt = (v, p) => Math.max(0, v.chapters.findIndex(c => p >= c.start && p < c.end));
+
 VIEWS.mread = async r => {
   if (!mangaOn()) { location.hash = '#/home'; return null; }
   try { await loadManga(); } catch (e) { location.hash = '#/manga'; return null; }
-  const vx = mangaVol(r.a), i = num(r.b, 0);
+  const vx = mangaVol(r.a), ci = r.b === '' ? -1 : num(r.b, 0);
   // ?preview=1: a parent looking at any volume from Family settings. Nothing is opened, paid or marked as read.
   const preview = r.q.get('preview') === '1' && UI.parentOk;
-  if (!vx || !vx.v.chapters[i] || (!preview && !mangaUnlocked(vx.v.id))) { location.hash = preview || UI.parentOk ? '#/parent' : '#/manga'; return null; }
-  const x = mangaFlat(vx.s).find(y => y.v === vx.v && y.i === i);
-  const n = x.c.end - x.c.start;
-  UI.m = Object.assign({}, x, { n, p: preview ? 0 : Math.min(num((store.get('mpos', {}) || {})[x.key], 0), n - 1), zoom: false, preview, ready: false, got: 0 });
+  if (!vx || (ci >= 0 && !vx.v.chapters[ci]) || (!preview && !mangaUnlocked(vx.v.id))) { location.hash = preview || UI.parentOk ? '#/parent' : '#/manga'; return null; }
+  const v = vx.v, n = v.pages.length;
+  const p = ci >= 0 ? v.chapters[ci].start : preview ? 0 : mPos(v);
+  UI.m = { s: vx.s, v, n, p, zoom: false, preview, ready: false };
   return `<div class="mreader" id="mr">
     <div class="mtop"><a class="icon-btn" href="${preview ? '#/parent' : '#/manga'}" aria-label="Назад">${ICON.back}</a>
-      <b class="grow" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(x.s.title)} · том ${x.v.n} · ${esc(chName(x.c))}</b>
+      <b class="grow" id="mtitle" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(vx.s.title)} · том ${v.n}</b>
       <span class="small" id="mcount"></span>
       <button class="icon-btn" data-act="mzoom" aria-label="Увеличить"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4M11 8v6M8 11h6"/></svg></button></div>
     <div class="mstage" id="mstage"></div>
-    <div class="mhint small">${preview ? 'Просмотр для родителей: ничего не открывается и не отмечается. ' : ''}${x.s.rtl ? 'Читается справа налево: следующая страница — нажми слева' : 'Следующая страница — нажми справа'}</div>
+    <div class="mhint small">${preview ? 'Просмотр для родителей: ничего не открывается и не отмечается. ' : ''}${vx.s.rtl ? 'Читается справа налево: следующая страница — нажми слева' : 'Следующая страница — нажми справа'}</div>
   </div>`;
 };
 
-/** Downloads the whole chapter first (progress bar), so every page then turns instantly. */
+/** Downloads the whole volume first (progress bar), so every page of every chapter then turns instantly.
+ *  Pages already on the device come from its cache, so this is quick the second time. */
 async function mLoad() {
   const m = UI.m;
   if (!m || m.ready || m.loading) return;
   m.loading = true;
-  const names = m.v.pages.slice(m.c.start, m.c.end).map(q => q.f);
+  const names = m.v.pages.map(q => q.f);
   const bar = (done, total) => {
     if (UI.m !== m) return;
     const stage = $('#mstage');
-    if (stage) stage.innerHTML = `<div class="mload stack"><b>Загружаю главу…</b><div class="bar" style="width:min(320px,70vw);height:8px"><i style="width:${Math.round(100 * done / total)}%"></i></div><span class="small">${done} из ${total} стр.</span></div>`;
+    if (stage) stage.innerHTML = `<div class="mload stack"><b>Загружаю том…</b><div class="bar" style="width:min(320px,70vw);height:8px"><i style="width:${Math.round(100 * done / total)}%"></i></div><span class="small">${done} из ${total} стр.</span></div>`;
   };
   bar(0, names.length);
   const ok = await fetchAssets(names, bar);
-  if (UI.m !== m) return; // he left the chapter while it was loading
+  if (UI.m !== m) return; // he left the reader while it was loading
   m.loading = false;
   if (!ok) {
     const stage = $('#mstage');
-    if (stage) stage.innerHTML = '<div class="mload stack"><b>Не получилось загрузить главу</b><span class="small">Проверь интернет.</span><button class="btn" data-act="mRetry">Ещё раз</button></div>';
+    if (stage) stage.innerHTML = '<div class="mload stack"><b>Не получилось загрузить том</b><span class="small">Проверь интернет.</span><button class="btn" data-act="mRetry">Ещё раз</button></div>';
     return;
   }
   m.ready = true;
   mShow();
-  // The next chapter's first pages, quietly, so going on is quick too.
-  const all = mangaFlat(m.s), nx = all[all.findIndex(y => y.key === m.key) + 1];
-  if (nx && (m.preview || mangaUnlocked(nx.v.id))) fetchAssets(nx.v.pages.slice(nx.c.start, Math.min(nx.c.end, nx.c.start + 4)).map(q => q.f));
+  // The next volume's first pages, quietly, if it is open.
+  const vs = m.s.volumes, nx = vs[vs.indexOf(m.v) + 1];
+  if (nx && (m.preview || mangaUnlocked(nx.id))) fetchAssets(nx.pages.slice(0, 4).map(q => q.f));
 }
 function mShow() {
   const m = UI.m, stage = $('#mstage');
@@ -2264,24 +2281,26 @@ function mShow() {
   if (!m.ready) { mLoad(); return; }
   stage.classList.toggle('zoomed', m.zoom);
   if (m.p >= m.n) {
-    // End of the chapter: the next chapter of the volume, or the next volume.
-    const all = mangaFlat(m.s), k = all.findIndex(y => y.key === m.key), nx = all[k + 1];
-    const price = mangaPrice();
+    // End of the volume: the next volume, open or to be opened.
+    const vs = m.s.volumes, nx = vs[vs.indexOf(m.v) + 1], price = mangaPrice();
     const next = !nx ? '<div class="muted">Это последний том, который есть. Новые появятся позже.</div>'
-      : m.preview || mangaUnlocked(nx.v.id) ? `<a class="btn" href="#/mread/${esc(nx.v.id)}/${nx.i}${m.preview ? '?preview=1' : ''}">${nx.v === m.v ? '' : 'Том ' + nx.v.n + ' · '}${esc(chName(nx.c))} ›</a>`
-      : `<button class="btn" data-act="mangaOpen" data-k="${esc(nx.v.id)}" ${spendable() < price ? 'disabled' : ''}>Открыть том ${nx.v.n} · ${coins(price)}</button>`;
-    stage.innerHTML = `<div class="mend stack"><b style="font-size:26px">${nx && nx.v === m.v ? 'Глава прочитана' : 'Том прочитан'}</b>${next}<a class="btn ghost" href="${m.preview ? '#/parent' : '#/manga'}" style="color:#FFFFFF;border-color:#2B3344">${m.preview ? 'Назад к настройкам' : 'Ко всей манге'}</a></div>`;
+      : m.preview || mangaUnlocked(nx.id) ? `<a class="btn" href="#/mread/${esc(nx.id)}${m.preview ? '/0?preview=1' : ''}">Том ${nx.n} ›</a>`
+      : `<button class="btn" data-act="mangaOpen" data-k="${esc(nx.id)}" ${spendable() < price ? 'disabled' : ''}>Открыть том ${nx.n} · ${coins(price)}</button>`;
+    stage.innerHTML = `<div class="mend stack"><b style="font-size:26px">Том прочитан</b>${next}<a class="btn ghost" href="${m.preview ? '#/parent' : '#/manga'}" style="color:#FFFFFF;border-color:#2B3344">${m.preview ? 'Назад к настройкам' : 'Ко всей манге'}</a></div>`;
     $('#mcount').textContent = '';
     return;
   }
-  const pg = m.v.pages[m.c.start + m.p];
+  const pg = m.v.pages[m.p], c = m.v.chapters[mChAt(m.v, m.p)];
   stage.innerHTML = `<img src="${ASSETS[pg.f]}" alt="Страница ${m.p + 1}" class="${m.zoom ? 'z' : ''}" style="aspect-ratio:${pg.w}/${pg.h}">`;
   $('#mcount').textContent = (m.p + 1) + ' / ' + m.n;
+  const t = $('#mtitle');
+  if (t && c) t.textContent = m.s.title + ' · том ' + m.v.n + ' · ' + chName(c);
   if (m.preview) return;
   const pos = store.get('mpos', {}) || {};
-  pos[m.key] = m.p;
+  pos[m.v.id] = m.p;
   store.set('mpos', pos);
-  if (m.p === m.n - 1) { const rd = store.get('mread', {}) || {}; if (!rd[m.key]) { rd[m.key] = today(); store.set('mread', rd); } }
+  // A chapter counts as read when he reaches its last page.
+  if (c && m.p === c.end - 1) { const key = m.v.id + ':' + c.n, rd = store.get('mread', {}) || {}; if (!rd[key]) { rd[key] = today(); store.set('mread', rd); } }
 }
 function mTurn(d) {
   const m = UI.m;
@@ -2648,7 +2667,7 @@ const ACTS = {
       if (spendable() < price) return toast('Не хватает монет', true);
       save([ledger('manga', -price, x.v.id, volName(x))]);
     }
-    location.hash = '#/mread/' + x.v.id + '/0';
+    location.hash = '#/mread/' + x.v.id;
   },
   mzoom: () => { if (!UI.m) return; UI.m.zoom = !UI.m.zoom; mShow(); },
   // Makes the next level check due now (with a version he hasn't seen), instead of waiting 3 months.
